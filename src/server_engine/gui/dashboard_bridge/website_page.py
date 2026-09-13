@@ -756,6 +756,11 @@ class WebsitePageMixin(DashboardBridgeSignals):
             if generated_project and project_root.exists() and (not project_root.is_dir() or any(project_root.iterdir())):
                 raise ValueError("Choose a new or empty folder for this preset. Choose Custom Site for an existing project.")
 
+            if template_choice == "custom":
+                step(20, "Preparing existing project...")
+            elif template_choice == "empty":
+                step(20, "Preparing site...")
+
             if framework == FrameworkPreset.WORDPRESS:
                 if not database_name:
                     raise ValueError("WordPress database name is required.")

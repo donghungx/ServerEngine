@@ -101,8 +101,16 @@ Components.ShellCard {
     property var basicSetupStages: [
         "Validating input...",
         "Preparing project folder...",
-        "Creating default index.html...",
+        "Preparing site...",
         "Creating site and generating web server config...",
+        "Reloading web server route...",
+        "Site created."
+    ]
+    property var existingSetupStages: [
+        "Validating input...",
+        "Preparing existing project...",
+        "Creating site and generating web server config...",
+        "Generating SSL certificate...",
         "Reloading web server route...",
         "Site created."
     ]
@@ -576,14 +584,14 @@ Components.ShellCard {
             root.ensureSelectedSiteSectionSupported()
         }
         function onSiteCreationProgressChanged(value, message) {
-            if (!root.addSiteBusy || (root.addSiteTemplateIndex !== 1 && root.addSiteTemplateIndex !== 2)) {
+            if (!root.addSiteBusy) {
                 return
             }
             root.wordpressDownloadProgress = value
             root.wordpressDownloadStatus = message
         }
         function onSiteCreationCompleted(success, message) {
-            if (!root.addSiteBusy || (root.addSiteTemplateIndex !== 1 && root.addSiteTemplateIndex !== 2)) {
+            if (!root.addSiteBusy) {
                 return
             }
             addSiteWindow.closeConfirmOpen = false

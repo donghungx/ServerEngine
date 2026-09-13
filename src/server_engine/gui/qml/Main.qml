@@ -648,8 +648,9 @@ ApplicationWindow {
 
     function hasRuntimeDownloadLicense() {
         var status = bridge ? bridge.licenseStatus() : ({})
-        var state = String(status.status || "")
-        return Boolean(status.valid) && (state === "active" || state === "trial")
+        // Grace is valid during the first-run window too. Do not show the
+        // startup license dialog while the current license status is valid.
+        return Boolean(status.valid)
     }
 
     function startRequiredRuntimeBootstrapIfLicensed() {

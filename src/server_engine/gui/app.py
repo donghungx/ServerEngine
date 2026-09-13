@@ -8,6 +8,7 @@ import shutil
 import signal
 import subprocess
 import sys
+import time
 import webbrowser
 from urllib.parse import quote
 from datetime import datetime
@@ -274,8 +275,13 @@ class _SparkleUpdater:
                     self._logger.warning("Sparkle framework load returned False for %s", framework_path)
                     return
 
-            updater_cls = objc.lookUpClass("SPUUpdater")
-            user_driver_cls = objc.lookUpClass("SPUStandardUserDriver")
+            try:
+                updater_cls = objc.lookUpClass("SPUUpdater")
+                user_driver_cls = objc.lookUpClass("SPUStandardUserDriver")
+            except Exception as exc:
+                self._status_message = f"Sparkle updater classes unavailable: {exc}"
+                self._logger.info("Sparkle integration unavailable (%s).", self._status_message)
+                return
             self._host_bundle = AppKit.NSBundle.mainBundle()
             if self._host_bundle is None:
                 self._status_message = "Unable to resolve the main application bundle."
@@ -327,6 +333,8 @@ class _SparkleUpdater:
 
 
 def run() -> int:
+    startup_started = time.perf_counter()
+
     try:
         from PySide6.QtQml import QQmlApplicationEngine
         from PySide6.QtGui import QAction, QActionGroup, QKeySequence, QIcon
@@ -348,10 +356,15 @@ def run() -> int:
 
     log_path = _configure_app_logging()
     logger = logging.getLogger("server_engine.app")
+
+    def startup_checkpoint(label: str) -> None:
+        logger.info("Startup timing: %-28s %8.1f ms", label, (time.perf_counter() - startup_started) * 1000.0)
+
     try:
         _seed_bundled_runtime_if_needed(logger)
     except Exception:
         logger.exception("Bundled runtime seed failed.")
+    startup_checkpoint("bundled runtime seed")
 
     def _handle_uncaught_exception(exc_type, exc_value, exc_tb):
         if issubclass(exc_type, KeyboardInterrupt):
@@ -363,6 +376,7 @@ def run() -> int:
     sys.excepthook = _handle_uncaught_exception
 
     app = QApplication(sys.argv)
+    startup_checkpoint("QApplication created")
 
     def _apply_qt_color_scheme(theme_mode: str | None) -> None:
         mode = str(theme_mode or "system").strip().lower()
@@ -390,6 +404,7 @@ def run() -> int:
     interrupt_timer.start()
     logger.info("Application startup. log=%s", log_path)
     sparkle_updater = _SparkleUpdater(logger)
+    startup_checkpoint("Sparkle initialization")
 
     supported, support_message = _is_supported_macos_version()
     if not supported:
@@ -403,16 +418,28 @@ def run() -> int:
             QMessageBox.StandardButton.Ok,
         )
         return 1
+    startup_checkpoint("platform checks")
 
     bridge = None
     engine = None
     status_tray = None
     try:
         container = build_container()
+        startup_checkpoint("container and database")
+        startup_license_status = container.license_service.status()
+        logger.info(
+            "License state: path=%s status=%s valid=%s enforced=%s expires=%s",
+            container.license_service.license_path,
+            startup_license_status.status,
+            startup_license_status.valid,
+            startup_license_status.enforced,
+            startup_license_status.expires_at or "-",
+        )
         settings = container.settings_service.get_settings()
         _apply_qt_color_scheme(getattr(settings, "appearance_theme", "system"))
         bridge = DashboardBridge(container)
         terminal_controller = TerminalController(container)
+        startup_checkpoint("bridge and controllers")
         app.aboutToQuit.connect(terminal_controller.stopAll)
         tray_icon_dir = Path(__file__).resolve().parent / "qml" / "icons"
 
@@ -467,6 +494,7 @@ def run() -> int:
         if not engine.rootObjects():
             raise SystemExit(f"Unable to load QML interface: {qml_path}")
         root = engine.rootObjects()[0]
+        startup_checkpoint("QML interface loaded")
 
         if QSystemTrayIcon.isSystemTrayAvailable():
             status_tray = QSystemTrayIcon(_tray_icon(), app)
@@ -1042,6 +1070,8 @@ def run() -> int:
                 if reason in {QSystemTrayIcon.Trigger, QSystemTrayIcon.DoubleClick}
                 else None
             )
+
+        startup_checkpoint("menus and tray ready")
 
         def schedule_periodic_license_revalidate() -> None:
             timer = QTimer(app)

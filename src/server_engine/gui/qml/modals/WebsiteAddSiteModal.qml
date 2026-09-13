@@ -302,7 +302,7 @@ Window {
             root.addSiteBusy = true
             wizardStep = 2
             root.wordpressDownloadProgress = 1
-            root.wordpressDownloadStatus = "Creating site..."
+            root.wordpressDownloadStatus = "Preparing existing project..."
             debugSiteFlow("startCreateSiteFlow:async-start", { wizardStep: wizardStep })
             if (!dashboardBridge.createSiteAsync(root.pendingAddSitePayload)) {
                 root.addSiteBusy = false
@@ -861,9 +861,11 @@ Window {
                                     ? root.composerSetupStages
                                     : (root.addSiteTemplateIndex === 2
                                         ? root.laravelSetupStages
-                                        : (selectedTemplateChoice === "empty" || selectedTemplateChoice === "custom"
+                                        : (selectedTemplateChoice === "custom"
+                                            ? root.existingSetupStages
+                                            : (selectedTemplateChoice === "empty"
                                             ? root.basicSetupStages
-                                            : root.wordpressSetupStages))
+                                            : root.wordpressSetupStages)))
                                 delegate: Components.StatusProgressRow {
                                     required property int index
                                     required property var modelData
@@ -871,9 +873,11 @@ Window {
                                         ? root.composerSetupStages
                                         : (root.addSiteTemplateIndex === 2
                                             ? root.laravelSetupStages
-                                            : (selectedTemplateChoice === "empty" || selectedTemplateChoice === "custom"
+                                            : (selectedTemplateChoice === "custom"
+                                                ? root.existingSetupStages
+                                                : (selectedTemplateChoice === "empty"
                                                 ? root.basicSetupStages
-                                                : root.wordpressSetupStages))
+                                                : root.wordpressSetupStages)))
                                     Layout.fillWidth: true
                                     label: String(modelData || "")
                                     phaseIndex: index
