@@ -11,6 +11,7 @@ import "../i18n"
 Components.ShellCard {
     id: root
     signal databaseCliRequested()
+    signal backupRequested(var rowData)
 
     required property var dashboardBridge
     border.width: 0
@@ -421,10 +422,7 @@ Components.ShellCard {
                                         height: 72
                                         rowData: parent.mongodbItem
                                         onBackupRequested: function(rowData) {
-                                            root.mongodbBackupDatabaseName = rowData.name
-                                            root.mongodbBackupPopupOpen = true
-                                            root.mongodbBackupResultOpen = false
-                                            dashboardBridge.clearMongodbRuntimeFeedback()
+                                            root.backupRequested(rowData)
                                         }
                                         onImportRequested: function(rowData) {
                                             root.mongodbImportDatabaseName = rowData.name

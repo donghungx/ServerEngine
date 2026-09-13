@@ -13,6 +13,7 @@ Item {
     property string databaseName: ""
     property string databaseEngine: "mysql"
     property var postgresqlBackupItemsModel: []
+    property var mongodbBackupItemsModel: []
 
     property bool backupActionConfirmOpen: false
     property string backupActionPath: ""
@@ -22,14 +23,45 @@ Item {
     property bool refreshAfterBackupRequested: false
 
     function isPostgresql() { return databaseEngine === "postgresql" }
-    function backupItems() { return isPostgresql() ? postgresqlBackupItemsModel : dashboardBridge.databaseBackupItems }
-    function backupLoading() { return isPostgresql() ? false : dashboardBridge.databaseBackupItemsLoading }
-    function backupBusy() { return isPostgresql() ? dashboardBridge.postgresqlBackupBusy : dashboardBridge.databaseBackupBusy }
-    function backupMessage() { return isPostgresql() ? dashboardBridge.postgresqlBackupMessage : dashboardBridge.databaseBackupMessage }
-    function backupError() { return isPostgresql() ? dashboardBridge.postgresqlBackupError : dashboardBridge.databaseBackupError }
-    function startBackup() { return isPostgresql() ? dashboardBridge.createPostgresqlBackup(databaseName) : dashboardBridge.createDatabaseBackup(databaseName) }
-    function restoreBackup(path) { return isPostgresql() ? dashboardBridge.restorePostgresqlBackup(path) : dashboardBridge.restoreDatabaseBackup(path, databaseName) }
-    function deleteBackup(path) { return isPostgresql() ? dashboardBridge.deletePostgresqlBackup(path) : dashboardBridge.deleteDatabaseBackup(path) }
+    function isMongodb() { return databaseEngine === "mongodb" }
+    function backupItems() {
+        if (isPostgresql()) return postgresqlBackupItemsModel
+        if (isMongodb()) return mongodbBackupItemsModel
+        return dashboardBridge.databaseBackupItems
+    }
+    function backupLoading() {
+        return isPostgresql() ? false : (!isMongodb() ? dashboardBridge.databaseBackupItemsLoading : false)
+    }
+    function backupBusy() {
+        if (isPostgresql()) return dashboardBridge.postgresqlBackupBusy
+        if (isMongodb()) return dashboardBridge.mongodbBackupBusy
+        return dashboardBridge.databaseBackupBusy
+    }
+    function backupMessage() {
+        if (isPostgresql()) return dashboardBridge.postgresqlBackupMessage
+        if (isMongodb()) return dashboardBridge.mongodbBackupMessage
+        return dashboardBridge.databaseBackupMessage
+    }
+    function backupError() {
+        if (isPostgresql()) return dashboardBridge.postgresqlBackupError
+        if (isMongodb()) return dashboardBridge.mongodbBackupError
+        return dashboardBridge.databaseBackupError
+    }
+    function startBackup() {
+        if (isPostgresql()) return dashboardBridge.createPostgresqlBackup(databaseName)
+        if (isMongodb()) return dashboardBridge.createMongodbBackup(databaseName)
+        return dashboardBridge.createDatabaseBackup(databaseName)
+    }
+    function restoreBackup(path) {
+        if (isPostgresql()) return dashboardBridge.restorePostgresqlBackup(path)
+        if (isMongodb()) return dashboardBridge.restoreMongodbBackup(path)
+        return dashboardBridge.restoreDatabaseBackup(path, databaseName)
+    }
+    function deleteBackup(path) {
+        if (isPostgresql()) return dashboardBridge.deletePostgresqlBackup(path)
+        if (isMongodb()) return dashboardBridge.deleteMongodbBackup(path)
+        return dashboardBridge.deleteDatabaseBackup(path)
+    }
 
     function scheduleRefreshBackupItems() {
         console.log("[DatabaseBackupPage] scheduleRefreshBackupItems databaseName=", databaseName)
@@ -38,7 +70,9 @@ Item {
 
     function refreshBackupItems() {
         console.log("[DatabaseBackupPage] refreshBackupItems request databaseName=", databaseName)
-        if (!isPostgresql()) {
+        if (isMongodb()) {
+            mongodbBackupItemsModel = dashboardBridge.mongodbBackupItems(databaseName)
+        } else if (!isPostgresql()) {
             dashboardBridge.refreshDatabaseBackupItemsAsync(databaseName)
         } else {
             postgresqlBackupItemsModel = dashboardBridge.postgresqlBackupItems(databaseName)
@@ -87,6 +121,18 @@ Item {
                 return
             }
             if (backupPage.backupBusy()) {
+                return
+            }
+            backupPage.refreshAfterBackupRequested = false
+            backupPage.scheduleRefreshBackupItems()
+        }
+
+        function onMongodbRuntimeFeedbackChanged() {
+            if (!backupPage.isMongodb()) {
+                return
+            }
+            backupPage.mongodbBackupItemsModel = dashboardBridge.mongodbBackupItems(backupPage.databaseName)
+            if (!backupPage.refreshAfterBackupRequested || backupPage.backupBusy()) {
                 return
             }
             backupPage.refreshAfterBackupRequested = false

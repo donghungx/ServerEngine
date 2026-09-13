@@ -416,6 +416,9 @@ class TerminalController(QObject):
                         "label": f"Redis {runtime.version}",
                         "title": f"Redis {runtime.version}",
                         "binDir": str(client_path.parent),
+                        "redisVersion": str(runtime.version),
+                        "redisHome": str(runtime.home),
+                        "redisBinDir": str(client_path.parent),
                         "command": "/bin/bash",
                     }
                 )
@@ -474,6 +477,7 @@ class TerminalController(QObject):
             "phpHome": str(runtime.home),
             "command": "/bin/bash",
             **self._database_profile_fields(database_runtime),
+            **self._redis_profile_fields(),
         }
 
     def _website_profile(self, site) -> dict[str, str]:
@@ -497,6 +501,7 @@ class TerminalController(QObject):
             "siteRoot": str(site.project_path),
             "command": "/bin/bash",
             **self._database_profile_fields(database_runtime),
+            **self._redis_profile_fields(),
         }
 
     def _open_profile(self, profile: dict[str, str], *, allow_shell_fallback: bool = True) -> str:
@@ -588,6 +593,9 @@ class TerminalController(QObject):
         database_bin_dir = Path(str(profile.get("databaseBinDir") or ""))
         if database_bin_dir.exists() and str(database_bin_dir) not in path_parts:
             path_parts.append(str(database_bin_dir))
+        redis_bin_dir = Path(str(profile.get("redisBinDir") or ""))
+        if redis_bin_dir.exists() and str(redis_bin_dir) not in path_parts:
+            path_parts.append(str(redis_bin_dir))
         default_node_bin_dir = self._default_node_bin_dir()
         if (
             default_node_bin_dir
@@ -687,6 +695,20 @@ class TerminalController(QObject):
             "databaseBinDir": str(client_path.parent) if client_path is not None else "",
         }
 
+    def _redis_profile_fields(self) -> dict[str, str]:
+        try:
+            runtime = self._container.redis_service.active_runtime()
+            if runtime is None:
+                return {}
+            client_path = Path(runtime.client_path or "") if runtime.client_path else None
+            return {
+                "redisVersion": str(runtime.version),
+                "redisHome": str(runtime.home),
+                "redisBinDir": str(client_path.parent) if client_path is not None else "",
+            }
+        except Exception:
+            return {}
+
     def _profile_rcfile(self, profile: dict[str, str]) -> Path:
         rc_dir = self._container.runtime_paths.config_dir / "terminal"
         rc_dir.mkdir(parents=True, exist_ok=True)
@@ -706,6 +728,9 @@ class TerminalController(QObject):
             lines.append(f"printf '%s\\n' {shlex.quote('PHP: ' + str(profile.get('phpVersion')) + ' (' + str(profile.get('phpHome') or '') + ')')}")
         if profile.get("databaseEngine"):
             lines.append(f"printf '%s\\n' {shlex.quote('Database CLI: ' + str(profile.get('databaseEngine')) + ' ' + str(profile.get('databaseVersion') or '') + ' (' + str(profile.get('databaseHome') or '') + ')')}")
+        redis_bin_dir = str(profile.get("redisBinDir") or "")
+        if redis_bin_dir:
+            lines.append(f"printf '%s\\n' {shlex.quote('Redis: current ' + str(profile.get('redisVersion') or '') + ' (' + str(profile.get('redisHome') or '') + ')')}")
         node_bin_dir = str(profile.get("binDir") or "") if str(profile.get("kind") or "") == "node" else self._default_node_bin_dir()
         if node_bin_dir:
             node_label = "selected" if str(profile.get("kind") or "") == "node" else "default"
@@ -728,6 +753,8 @@ class TerminalController(QObject):
             mapped_commands.extend(["node", "npm"])
         if profile.get("databaseEngine"):
             mapped_commands.append(str(profile.get("databaseEngine")))
+        if redis_bin_dir or str(profile.get("kind") or "") == "redis":
+            mapped_commands.append("redis")
         if mapped_commands:
             lines.append(
                 f"printf '%s\\n' {shlex.quote('Type ' + ', '.join(mapped_commands) + ' to use the mapped versions for this terminal.')}"
@@ -765,6 +792,13 @@ class TerminalController(QObject):
 
         composer_phar = self._find_composer_phar()
         wp_cli_phar = self._find_wp_cli_phar()
+        redis_shim = shim_dir / "redis"
+        redis_shim.write_text(
+            "#!/bin/bash\n"
+            "exec redis-cli \"$@\"\n",
+            encoding="utf-8",
+        )
+        redis_shim.chmod(0o755)
         if not composer_phar and not wp_cli_phar:
             return shim_dir
         default_php_runtime = self._default_php_runtime()

@@ -14,6 +14,7 @@ RowLayout {
     signal openRedisCliRequested()
     signal openBottomMailRequested()
     signal openPostgresqlBackupRequested(var rowData)
+    signal openMongodbBackupRequested(var rowData)
     signal openMongodbCliRequested()
     signal openPostgresqlCliRequested()
     signal openWebsiteCliRequested(var siteData)
@@ -97,6 +98,7 @@ RowLayout {
             Pages.MongoDBPage {
                 dashboardBridge: mainContentLayout.dashboardBridge
                 onDatabaseCliRequested: mainContentLayout.openMongodbCliRequested()
+                onBackupRequested: mainContentLayout.openMongodbBackupRequested(rowData)
             }
 
             DatabasePages.DatabaseBackupPage {

@@ -63,6 +63,47 @@ class SystemHelpersMixin:
             self.operationFeedbackChanged.emit()
             return False
 
+    @Slot(str, str, result=bool)
+    def openLogInViewer(self, title: str, content: str) -> bool:
+        """Open captured log text in macOS Console (or the system viewer)."""
+        try:
+            handle = tempfile.NamedTemporaryFile(
+                "w",
+                encoding="utf-8",
+                suffix=".log",
+                prefix="server-engine-",
+                delete=False,
+            )
+            with handle:
+                handle.write(str(content or ""))
+
+            if sys.platform == "darwin":
+                console_paths = (
+                    Path("/System/Applications/Utilities/Console.app"),
+                    Path("/Applications/Utilities/Console.app"),
+                )
+                if any(path.exists() for path in console_paths):
+                    opener_args = ["open", "-a", "Console", handle.name]
+                else:
+                    opener_args = ["open", handle.name]
+                subprocess.Popen(
+                    opener_args,
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                )
+            else:
+                subprocess.Popen(
+                    ["xdg-open", handle.name],
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                )
+            return True
+        except Exception as exc:
+            self._last_operation_message = str(exc)
+            self._last_operation_error = True
+            self.operationFeedbackChanged.emit()
+            return False
+
     @Property(bool, notify=appSettingsFeedbackChanged)
     def macOS26OrLater(self) -> bool:
         if platform.system() != "Darwin":

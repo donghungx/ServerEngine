@@ -766,6 +766,7 @@ ApplicationWindow {
             )
             bridge.clearDatabaseRuntimeFeedback()
             var nextDatabaseName = String(rowData && rowData.name ? rowData.name : "")
+            databaseBackupPage.databaseEngine = "mysql"
             databaseBackupPage.databaseName = nextDatabaseName
             bridge.setCurrentPage("database-backup")
             bridge.refreshDatabaseBackupItemsAsync(nextDatabaseName)
@@ -796,6 +797,12 @@ ApplicationWindow {
         onOpenPostgresqlCliRequested: window.openActivePostgresqlCli()
         onOpenPostgresqlBackupRequested: function(rowData) {
             databaseBackupPage.databaseEngine = "postgresql"
+            databaseBackupPage.databaseName = String(rowData && rowData.name ? rowData.name : "")
+            bridge.setCurrentPage("database-backup")
+            databaseBackupPage.refreshBackupItems()
+        }
+        onOpenMongodbBackupRequested: function(rowData) {
+            databaseBackupPage.databaseEngine = "mongodb"
             databaseBackupPage.databaseName = String(rowData && rowData.name ? rowData.name : "")
             bridge.setCurrentPage("database-backup")
             databaseBackupPage.refreshBackupItems()

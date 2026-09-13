@@ -551,14 +551,12 @@ Components.ShellCard {
 
                 IconOnlyButton {
                     iconSource: "../../icons/lucide/file-text.svg"
-                    tooltip: "Open in native viewer"
+                    tooltip: "Open in Console"
                     onClicked: {
-                        if (root.dashboardBridge && root.dashboardBridge.openPlainTextViewer) {
-                            root.dashboardBridge.openPlainTextViewer(
+                        if (root.dashboardBridge && root.dashboardBridge.openLogInViewer) {
+                            root.dashboardBridge.openLogInViewer(
                                 root.selectedLogName(),
-                                root.logContent,
-                                "",
-                                Theme.surface
+                                root.logContent
                             )
                         }
                     }
