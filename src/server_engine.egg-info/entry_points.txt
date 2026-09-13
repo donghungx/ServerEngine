@@ -1,0 +1,3 @@
+[console_scripts]
+server-engine = server_engine.cli.app:main
+server-engine-gui = server_engine.main:main

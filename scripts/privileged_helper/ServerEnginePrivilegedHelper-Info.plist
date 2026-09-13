@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>CFBundleIdentifier</key>
+    <string>com.serverengine.app.helper</string>
+    <key>CFBundleName</key>
+    <string>com.serverengine.app.helper</string>
+    <key>SMAuthorizedClients</key>
+    <array>
+        <string>identifier "com.serverengine.app" and anchor apple generic and certificate leaf[subject.OU] = "G54PTLH399"</string>
+    </array>
+</dict>
+</plist>

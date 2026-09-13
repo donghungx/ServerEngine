@@ -1,0 +1,32 @@
+SERVER ENGINE END USER LICENSE AGREEMENT (EULA)
+
+IMPORTANT: READ THIS AGREEMENT CAREFULLY.
+
+By installing or using Server Engine, you agree to the terms of this License Agreement.
+If you do not agree, do not install or use the software.
+
+1. License Grant
+Server Engine grants you a non-exclusive, non-transferable license to use this software
+for local development and testing purposes.
+
+2. Restrictions
+You may not redistribute, sublicense, reverse engineer, decompile, or modify this software
+except where permitted by applicable law.
+
+3. Data and Runtime Behavior
+The software may manage local runtime files, logs, and configuration under your user profile.
+You are responsible for your local data backups.
+
+4. No Warranty
+The software is provided "AS IS", without warranties of any kind, express or implied.
+
+5. Limitation of Liability
+In no event shall the authors or distributors be liable for damages arising from use or
+inability to use the software.
+
+6. Termination
+This license terminates automatically if you violate these terms.
+
+7. Governing Terms
+Use of this software is subject to applicable laws and regulations in your jurisdiction.
+

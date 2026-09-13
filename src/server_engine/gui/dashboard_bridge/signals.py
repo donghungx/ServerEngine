@@ -1,0 +1,59 @@
+from PySide6.QtCore import Signal
+
+
+class DashboardBridgeSignals:
+    currentPageChanged = Signal()
+    dataChanged = Signal()
+    metricsChanged = Signal()
+    operationFeedbackChanged = Signal()
+    stackFeedbackChanged = Signal()
+    databaseRuntimeFeedbackChanged = Signal()
+    databaseBackupItemsChanged = Signal()
+    postgresqlRuntimeFeedbackChanged = Signal()
+    mongodbRuntimeFeedbackChanged = Signal()
+    redisRuntimeFeedbackChanged = Signal()
+    mailpitRuntimeFeedbackChanged = Signal()
+    mailpitMailboxChanged = Signal()
+    redisInspectorChanged = Signal()
+    appSettingsFeedbackChanged = Signal()
+    appSettingsSaveRequested = Signal(str, "QVariantMap")
+    appSettingsSaveCompleted = Signal(str, bool, str)
+    runtimeServerItemsChanged = Signal()
+    phpExtensionsChanged = Signal()
+    homeServiceChanged = Signal()
+    actionStateChanged = Signal()
+    phpInfoReady = Signal(str, bool, str, str)
+    servicePortConflictChanged = Signal()
+    nodeProjectRuntimeActionCompleted = Signal(bool)
+    nodeProjectSaveCompleted = Signal(bool)
+    nodeProjectSaveProgressChanged = Signal(int, str)
+    siteCreationProgressChanged = Signal(int, str)
+    siteCreationCompleted = Signal(bool, str)
+
+currentPageChanged = DashboardBridgeSignals.currentPageChanged
+dataChanged = DashboardBridgeSignals.dataChanged
+metricsChanged = DashboardBridgeSignals.metricsChanged
+operationFeedbackChanged = DashboardBridgeSignals.operationFeedbackChanged
+stackFeedbackChanged = DashboardBridgeSignals.stackFeedbackChanged
+databaseRuntimeFeedbackChanged = DashboardBridgeSignals.databaseRuntimeFeedbackChanged
+databaseBackupItemsChanged = DashboardBridgeSignals.databaseBackupItemsChanged
+postgresqlRuntimeFeedbackChanged = DashboardBridgeSignals.postgresqlRuntimeFeedbackChanged
+mongodbRuntimeFeedbackChanged = DashboardBridgeSignals.mongodbRuntimeFeedbackChanged
+redisRuntimeFeedbackChanged = DashboardBridgeSignals.redisRuntimeFeedbackChanged
+mailpitRuntimeFeedbackChanged = DashboardBridgeSignals.mailpitRuntimeFeedbackChanged
+mailpitMailboxChanged = DashboardBridgeSignals.mailpitMailboxChanged
+redisInspectorChanged = DashboardBridgeSignals.redisInspectorChanged
+appSettingsFeedbackChanged = DashboardBridgeSignals.appSettingsFeedbackChanged
+appSettingsSaveRequested = DashboardBridgeSignals.appSettingsSaveRequested
+appSettingsSaveCompleted = DashboardBridgeSignals.appSettingsSaveCompleted
+runtimeServerItemsChanged = DashboardBridgeSignals.runtimeServerItemsChanged
+phpExtensionsChanged = DashboardBridgeSignals.phpExtensionsChanged
+homeServiceChanged = DashboardBridgeSignals.homeServiceChanged
+actionStateChanged = DashboardBridgeSignals.actionStateChanged
+phpInfoReady = DashboardBridgeSignals.phpInfoReady
+servicePortConflictChanged = DashboardBridgeSignals.servicePortConflictChanged
+nodeProjectRuntimeActionCompleted = DashboardBridgeSignals.nodeProjectRuntimeActionCompleted
+nodeProjectSaveCompleted = DashboardBridgeSignals.nodeProjectSaveCompleted
+nodeProjectSaveProgressChanged = DashboardBridgeSignals.nodeProjectSaveProgressChanged
+siteCreationProgressChanged = DashboardBridgeSignals.siteCreationProgressChanged
+siteCreationCompleted = DashboardBridgeSignals.siteCreationCompleted

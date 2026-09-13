@@ -1,0 +1,48 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "server-engine"
+version = "1.0.2"
+description = "Local web stack manager for macOS built with Python and PySide6."
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+  "PySide6>=6.7",
+  "certifi>=2024.0.0",
+  "cryptography>=42.0",
+  "ptyprocess>=0.7",
+  "pyte>=0.8",
+  "pymongo>=4.7",
+  "pyobjc-core>=10.0; sys_platform == 'darwin'",
+  "pyobjc-framework-Cocoa>=10.0; sys_platform == 'darwin'",
+]
+
+[project.optional-dependencies]
+dev = [
+  "pytest>=8.0"
+]
+
+[project.scripts]
+server-engine = "server_engine.cli.app:main"
+server-engine-gui = "server_engine.main:main"
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+include-package-data = true
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+server_engine = [
+  "gui/qml/**/*.qml",
+  "gui/qml/**/qmldir",
+  "gui/qml/**/*.svg",
+  "gui/qml/**/*.json"
+]
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["tests"]
