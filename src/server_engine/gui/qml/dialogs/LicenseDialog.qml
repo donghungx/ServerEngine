@@ -123,6 +123,14 @@ Window {
         if (Boolean(result.valid)) {
             activationForm = false
             activationCodeInput.text = ""
+            // A successful activation/trial should finish the startup gate
+            // immediately. The dialog will return only when the license is
+            // invalid or expired.
+            Qt.callLater(function() {
+                if (licenseDialog.visible && Boolean(statusData.valid)) {
+                    closeWithResult(true)
+                }
+            })
         }
     }
 
