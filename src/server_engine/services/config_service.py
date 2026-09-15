@@ -227,7 +227,7 @@ class ConfigService:
             for module_name in self.SSL_APACHE_MODULES:
                 if module_name in available_modules and module_name not in modules:
                     modules.append(module_name)
-        for module_name in ("mod_proxy.so", "mod_proxy_http.so"):
+        for module_name in ("mod_proxy.so", "mod_proxy_http.so", "mod_proxy_wstunnel.so"):
             if (node_projects or proxies) and module_name in available_modules and module_name not in modules:
                 modules.append(module_name)
         if not modules:
@@ -365,7 +365,7 @@ class ConfigService:
             f"    ServerName {project.local_domain}\n"
             f"{alias_line}"
             f"    ProxyPreserveHost On\n"
-            f"    ProxyPass / http://127.0.0.1:{project.port}/\n"
+            f"    ProxyPass / http://127.0.0.1:{project.port}/ upgrade=websocket\n"
             f"    ProxyPassReverse / http://127.0.0.1:{project.port}/\n"
             f"    ErrorLog \"{self.apache_logs_dir() / f'{log_name}-error.log'}\"\n"
             f"    CustomLog \"{self.apache_logs_dir() / f'{log_name}-access.log'}\" common\n"
@@ -401,7 +401,7 @@ class ConfigService:
             f"    SSLCertificateFile \"{cert_path}\"\n"
             f"    SSLCertificateKeyFile \"{key_path}\"\n"
             f"    ProxyPreserveHost On\n"
-            f"    ProxyPass / http://127.0.0.1:{project.port}/\n"
+            f"    ProxyPass / http://127.0.0.1:{project.port}/ upgrade=websocket\n"
             f"    ProxyPassReverse / http://127.0.0.1:{project.port}/\n"
             f"    ErrorLog \"{self.apache_logs_dir() / f'{log_name}-ssl-error.log'}\"\n"
             f"    CustomLog \"{self.apache_logs_dir() / f'{log_name}-ssl-access.log'}\" common\n"
@@ -509,18 +509,47 @@ class ConfigService:
 
     def apache_proxy_virtual_host(self, proxy: Proxy, port: int) -> str:
         target = self._proxy_target(proxy.target)
+        websocket_routes = ""
         if target.startswith("unix:"):
             target = f"{target.rstrip('/')}|http://localhost/"
+            websocket_block = ""
         else:
             target = target.rstrip("/") + "/"
+            websocket_target = target
+            upstream = urlsplit(target)
+            if websocket_target.startswith("https://"):
+                websocket_target = "wss://" + websocket_target.removeprefix("https://")
+            elif websocket_target.startswith("http://"):
+                websocket_target = "ws://" + websocket_target.removeprefix("http://")
+            websocket_block = (
+                "    RewriteEngine On\n"
+                f'    RequestHeader set Host "{upstream.netloc}" "expr=%{{HTTP:Upgrade}} =~ m#(?i)^websocket$#"\n'
+                f'    RequestHeader unset Origin "expr=%{{HTTP:Upgrade}} =~ m#(?i)^websocket$#"\n'
+                "    RewriteCond %{REQUEST_URI} !^/_next/(hmr|webpack-hmr)(/|$) [NC]\n"
+                "    RewriteCond %{HTTP:Upgrade} websocket [NC]\n"
+                "    RewriteCond %{HTTP:Connection} (^|,)[[:space:]]*upgrade([[:space:]]*,|$) [NC]\n"
+                f"    RewriteRule ^/?(.*)$ {websocket_target}$1 [P,L]\n"
+            )
+            # Next/Turbopack uses a dedicated HMR endpoint. Keep explicit
+            # websocket mappings before the catch-all so Apache never lets
+            # mod_proxy_http handle this upgrade request.
+            websocket_routes = (
+                f"    ProxyPass /_next/hmr {websocket_target}_next/hmr\n"
+                f"    ProxyPassReverse /_next/hmr {websocket_target}_next/hmr\n"
+                f"    ProxyPass /_next/webpack-hmr {websocket_target}_next/webpack-hmr\n"
+                f"    ProxyPassReverse /_next/webpack-hmr {websocket_target}_next/webpack-hmr\n"
+            )
         cert_path, key_path = self.proxy_ssl_paths(proxy)
         http_vhost = f'''<VirtualHost *:{port}>
     ServerName {proxy.local_domain}
     ProxyPreserveHost On
-    ProxyPass / {target}
+    ProxyWebsocketFallbackToProxyHttp Off
+{websocket_block}
+{websocket_routes}
+    ProxyPass / {target} upgrade=websocket
     ProxyPassReverse / {target}
     ErrorLog "{self.apache_logs_dir() / f'{proxy.id}-error.log'}"
-    CustomLog "{self.apache_logs_dir() / f'{proxy.id}-access.log'}" common
+    CustomLog "{self.apache_logs_dir() / f'{proxy.id}-access.log'}" "%h %l %u %t \\"%r\\" %>s %{{Upgrade}}i %{{Connection}}i"
 </VirtualHost>
 '''
         if not proxy.ssl_enabled or not cert_path.exists() or not key_path.exists():
@@ -531,10 +560,13 @@ class ConfigService:
     SSLCertificateFile "{cert_path}"
     SSLCertificateKeyFile "{key_path}"
     ProxyPreserveHost On
-    ProxyPass / {target}
+    ProxyWebsocketFallbackToProxyHttp Off
+{websocket_block}
+{websocket_routes}
+    ProxyPass / {target} upgrade=websocket
     ProxyPassReverse / {target}
     ErrorLog "{self.apache_logs_dir() / f'{proxy.id}-ssl-error.log'}"
-    CustomLog "{self.apache_logs_dir() / f'{proxy.id}-ssl-access.log'}" common
+    CustomLog "{self.apache_logs_dir() / f'{proxy.id}-ssl-access.log'}" "%h %l %u %t \\"%r\\" %>s %{{Upgrade}}i %{{Connection}}i"
 </VirtualHost>
 '''
         return http_vhost + https_vhost
