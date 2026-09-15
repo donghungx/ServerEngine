@@ -39,6 +39,7 @@ Rectangle {
     property bool explicitSessionOpenPending: false
     property bool openRefreshQueued: false
     property bool terminalResizing: false
+    property bool terminalWasMinimized: false
     property var terminalSessionCache: ({})
     readonly property int minimumExpandedHeight: 80
     readonly property int maxTerminalTabs: 4
@@ -259,9 +260,23 @@ Rectangle {
         if (terminalResizing) {
             return
         }
+        // Do not resize the PTY while the bottom panel is sliding closed.
+        // A temporary 0-height panel reports a tiny row count, which makes
+        // shells redraw their prompt and leaves duplicate-looking lines when
+        // the panel is opened again.
+        if (!dockMode && (!bottomTerminalOpen || terminalContent.height < minimumExpandedHeight / 2)) {
+            return
+        }
         if (terminalBackend && activeSessionId.length > 0) {
             terminalBackend.resizeTerminal(activeSessionId, terminalRowCount, terminalColumns)
         }
+    }
+
+    function scheduleTerminalResize() {
+        if (terminalResizing || (!dockMode && !bottomTerminalOpen)) {
+            return
+        }
+        terminalResizeTimer.restart()
     }
 
     function requestActiveScreen() {
@@ -364,6 +379,15 @@ Rectangle {
         }
         refreshActiveScreen()
         scrollTerminalToBottom(true)
+    }
+
+    function scheduleWindowRestoreRefresh() {
+        if (!bottomTerminalOpen || activeSessionId.length === 0) {
+            return
+        }
+        // macOS can restore the window before the ScrollView/TextEdit has its
+        // final geometry. Redraw after the restore layout has settled.
+        terminalRestoreRefreshTimer.restart()
     }
 
     function applySessionScreen(snapshot) {
@@ -893,6 +917,30 @@ Rectangle {
     }
 
     Timer {
+        id: terminalRestoreRefreshTimer
+        interval: 160
+        repeat: false
+        onTriggered: {
+            if (!bottomTerminalPanel.bottomTerminalOpen || bottomTerminalPanel.activeSessionId.length === 0) {
+                return
+            }
+            bottomTerminalPanel.resetTerminalView(false)
+            bottomTerminalPanel.resizeActiveTerminal()
+            bottomTerminalPanel.requestActiveScreen()
+            Qt.callLater(function() {
+                bottomTerminalPanel.forceTerminalPaintRefresh()
+            })
+        }
+    }
+
+    Timer {
+        id: terminalResizeTimer
+        interval: 180
+        repeat: false
+        onTriggered: bottomTerminalPanel.resizeActiveTerminal()
+    }
+
+    Timer {
         id: terminalScrollBarHideTimer
         interval: 1200
         repeat: false
@@ -906,6 +954,7 @@ Rectangle {
             return
         }
 
+        scheduleOpenRefresh()
         if (activeSessionId.length === 0) {
             requestTerminalAutoScroll()
             Qt.callLater(maybeEnsureDefaultSession)
@@ -942,8 +991,9 @@ Rectangle {
         Qt.callLater(focusTerminal)
     }
 
-    onTerminalColumnsChanged: resizeActiveTerminal()
-    onTerminalRowCountChanged: resizeActiveTerminal()
+    onTerminalColumnsChanged: scheduleTerminalResize()
+    onTerminalRowCountChanged: scheduleTerminalResize()
+    onHeightChanged: scheduleTerminalResize()
 
     Connections {
         target: bottomTerminalPanel.terminalBackend
@@ -995,6 +1045,22 @@ Rectangle {
                 if (bottomTerminalPanel.activeSessionId.length === 0) {
                     bottomTerminalPanel.resetTerminalView(true)
                 }
+            }
+        }
+    }
+
+    Connections {
+        target: bottomTerminalPanel.appWindow
+        ignoreUnknownSignals: true
+
+        function onWindowStateChanged(state) {
+            if (state === Window.Minimized) {
+                bottomTerminalPanel.terminalWasMinimized = true
+                return
+            }
+            if (bottomTerminalPanel.terminalWasMinimized) {
+                bottomTerminalPanel.terminalWasMinimized = false
+                bottomTerminalPanel.scheduleWindowRestoreRefresh()
             }
         }
     }
