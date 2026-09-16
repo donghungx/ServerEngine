@@ -28,6 +28,7 @@ Item {
     property bool addNodeProjectFeedbackError: root ? root.addNodeProjectFeedbackError : false
     property string editingNodeProjectId: root ? root.editingNodeProjectId : ""
     property alias nodeSslEnabled: addNodeProjectWindow.nodeSslEnabled
+    readonly property bool nodeSslCertificateBusy: bridge ? !!bridge.nodeSslCertificateBusy : false
     property alias nodeSslEnforceTls: addNodeProjectWindow.nodeSslEnforceTls
     property alias nodeSslAllowHttp: addNodeProjectWindow.nodeSslAllowHttp
     property alias nodeSslCertificatePath: addNodeProjectWindow.nodeSslCertificatePath
@@ -43,7 +44,10 @@ Item {
     function sanitizeLocalDomain(value) { return root && root.sanitizeLocalDomain ? root.sanitizeLocalDomain(value) : String(value || "").trim().toLowerCase().replace(/[^a-z0-9.-]/g, "") }
     function nodeDomainExists(value) { return root && root.nodeDomainExists ? root.nodeDomainExists(value) : false }
     function setNodeSslEnabled(value) { addNodeProjectWindow.nodeSslEnabled = !!value }
-    function setNodeSslEnforceTls(value) { addNodeProjectWindow.nodeSslEnforceTls = !!value }
+    function setNodeSslEnforceTls(value) {
+        addNodeProjectWindow.nodeSslEnforceTls = !!value
+        if (value) addNodeProjectWindow.nodeSslAllowHttp = false
+    }
     function setNodeSslAllowHttp(value) { addNodeProjectWindow.nodeSslAllowHttp = !!value }
     function createNodeProjectCertificate() { addNodeProjectWindow.createNodeProjectCertificate() }
     function trustNodeProjectCertificate() { addNodeProjectWindow.trustNodeProjectCertificate() }
@@ -55,6 +59,7 @@ Item {
             && nodeRunOptionsCombo.currentIndex >= 0
             && addNodeProjectWindow.nodePathValid
             && !nodeProjectSaveBusy
+            && !nodeSslCertificateBusy
     }
     function openNodeProject(nodeItem) {
         var item = nodeItem || ({})
@@ -356,6 +361,13 @@ Item {
         }
     }
 
+    function createNodeProjectCertificateAsync() {
+        if (nodeProjectSaveBusy || !bridge || root.editingNodeProjectId.length === 0) {
+            return false
+        }
+        return bridge.ensureNodeProjectSslCertificateAsync(root.editingNodeProjectId)
+    }
+
     function trustNodeProjectCertificate() {
         if (nodeProjectSaveBusy || !bridge || root.editingNodeProjectId.length === 0) {
             return
@@ -399,7 +411,7 @@ Item {
             notes: nodeNotesField.text.trim(),
             ssl_enabled: nodeSslEnabled,
             ssl_enforce_tls: nodeSslEnforceTls,
-            ssl_allow_http: nodeSslAllowHttp,
+            ssl_allow_http: nodeSslAllowHttp && !nodeSslEnforceTls,
             template_id: "existing"
         }
     }

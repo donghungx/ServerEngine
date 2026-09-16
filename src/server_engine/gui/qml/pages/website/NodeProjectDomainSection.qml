@@ -212,6 +212,7 @@ Item {
                 title: Strings.t("enable.ssl")
                 description: "Create a local HTTPS certificate for this site."
                 checked: sslEnabled
+                itemEnabled: !root.pageRoot.nodeSslCertificateBusy
                 onToggled: function(nextChecked) {
                     sslEnabled = nextChecked
                     refreshDirtyState()
@@ -219,8 +220,8 @@ Item {
                         return
                     }
                     if (nextChecked && !(pageRoot.nodeSslCertificateExists !== undefined ? pageRoot.nodeSslCertificateExists : false)) {
-                        pageRoot.createNodeProjectCertificate()
-                        if (!(pageRoot.nodeSslCertificateExists !== undefined ? pageRoot.nodeSslCertificateExists : false)) {
+                        var started = pageRoot.createNodeProjectCertificateAsync()
+                        if (!started) {
                             sslEnabled = false
                             refreshDirtyState()
                             return
@@ -230,6 +231,14 @@ Item {
                     }
                     pageRoot.setNodeSslEnabled(nextChecked)
                 }
+            }
+            Text {
+                visible: root.pageRoot.nodeSslCertificateBusy
+                text: "Creating SSL certificate..."
+                color: Theme.muted
+                font.pixelSize: 12
+                Layout.fillWidth: true
+                Layout.leftMargin: 198
             }
 
             Components.SettingsLabeledInput {

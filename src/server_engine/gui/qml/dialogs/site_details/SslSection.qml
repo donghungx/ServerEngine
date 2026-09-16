@@ -295,6 +295,9 @@ Item {
                             String(enforceTls)
                         )
                         enforceTls = nextChecked
+                        if (nextChecked) {
+                            allowHttp = false
+                        }
                         refreshDirtyState()
                     }
                 }
@@ -303,6 +306,8 @@ Item {
                     Layout.fillWidth: true
                     label: Strings.t("allow.access.to.this.site.via.insecure.http.connections")
                     checked: allowHttp
+                    enabled: !enforceTls
+                    opacity: enabled ? 1.0 : 0.45
                     onToggled: function(nextChecked) {
                         console.log(
                             "[SslSection] allowHttp toggled site_id=",
@@ -373,7 +378,7 @@ Item {
                     }
                     var nextSslEnabled = sslEnabled
                     var nextEnforceTls = enforceTls
-                    var nextAllowHttp = allowHttp
+                    var nextAllowHttp = allowHttp && !nextEnforceTls
                     console.log(
                         "[SslSection] save clicked site_id=",
                         String(siteData.id),

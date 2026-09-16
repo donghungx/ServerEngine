@@ -208,6 +208,8 @@ Item {
                     Layout.fillWidth: true
                     label: Strings.t("allow.access.to.this.site.via.insecure.http.connections")
                     checked: pageRoot && pageRoot.nodeSslAllowHttp !== undefined ? !!pageRoot.nodeSslAllowHttp : true
+                    enabled: !(pageRoot && pageRoot.nodeSslEnforceTls)
+                    opacity: enabled ? 1.0 : 0.45
                     onToggled: function(nextChecked) {
                         if (pageRoot) {
                             pageRoot.setNodeSslAllowHttp(nextChecked)
@@ -255,5 +257,4 @@ Item {
         }
     }
 }
-
 

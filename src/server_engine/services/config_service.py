@@ -39,6 +39,77 @@ class ConfigService:
         self.binary_locator = binary_locator
         self.settings_service = settings_service
 
+    def openssl_binary(self) -> str:
+        configured = os.environ.get("SERVER_ENGINE_OPENSSL", "").strip()
+        if configured and Path(configured).is_file():
+            return configured
+        bundled = sorted((self.runtime_paths.bin_dir / "tools" / "openssl").glob("*/bin/openssl"))
+        if bundled:
+            binary = bundled[-1]
+            self._prepare_bundled_openssl(binary)
+            return str(binary)
+        return shutil.which("openssl") or "/opt/homebrew/bin/openssl"
+
+    @staticmethod
+    def _prepare_bundled_openssl(binary: Path) -> None:
+        """Relink a staged Homebrew OpenSSL runtime to its bundled libraries."""
+        install_name_tool = shutil.which("install_name_tool") or "/usr/bin/install_name_tool"
+        lib_dir = binary.parent.parent / "lib"
+        if not lib_dir.is_dir() or not Path(install_name_tool).exists():
+            return
+        for library_name in ("libssl.3.dylib", "libcrypto.3.dylib"):
+            library = lib_dir / library_name
+            if not library.exists():
+                continue
+            try:
+                dependencies = subprocess.run(
+                    ["/usr/bin/otool", "-L", str(library)],
+                    capture_output=True,
+                    text=True,
+                    check=False,
+                ).stdout.splitlines()
+                for dependency in dependencies[1:]:
+                    dependency = dependency.strip().split(" ", 1)[0]
+                    if "/openssl" in dependency and Path(dependency).name.startswith("lib"):
+                        subprocess.run(
+                            [install_name_tool, "-change", dependency, f"@loader_path/{Path(dependency).name}", str(library)],
+                            capture_output=True,
+                            check=False,
+                        )
+                subprocess.run(
+                    [install_name_tool, "-id", f"@rpath/{library_name}", str(library)],
+                    capture_output=True,
+                    check=False,
+                )
+            except OSError:
+                continue
+        try:
+            dependencies = subprocess.run(
+                ["/usr/bin/otool", "-L", str(binary)],
+                capture_output=True,
+                text=True,
+                check=False,
+            ).stdout.splitlines()
+            for dependency in dependencies[1:]:
+                dependency = dependency.strip().split(" ", 1)[0]
+                if "/openssl" in dependency and Path(dependency).name.startswith("lib"):
+                    subprocess.run(
+                        [install_name_tool, "-change", dependency, f"@loader_path/../lib/{Path(dependency).name}", str(binary)],
+                        capture_output=True,
+                        check=False,
+                    )
+        except OSError:
+            pass
+
+    def openssl_environment(self) -> dict[str, str]:
+        environment = os.environ.copy()
+        openssl_path = Path(self.openssl_binary())
+        bundled_lib = openssl_path.parent.parent / "lib"
+        if bundled_lib.is_dir():
+            previous = environment.get("DYLD_LIBRARY_PATH", "")
+            environment["DYLD_LIBRARY_PATH"] = f"{bundled_lib}:{previous}" if previous else str(bundled_lib)
+        return environment
+
     def apache_runtime_key(self) -> str:
         return self.binary_locator.apache_home().name
 
@@ -552,7 +623,14 @@ class ConfigService:
     CustomLog "{self.apache_logs_dir() / f'{proxy.id}-access.log'}" "%h %l %u %t \\"%r\\" %>s %{{Upgrade}}i %{{Connection}}i"
 </VirtualHost>
 '''
-        if not proxy.ssl_enabled or not cert_path.exists() or not key_path.exists():
+        ssl_ready = proxy.ssl_enabled and cert_path.exists() and key_path.exists()
+        if ssl_ready and (proxy.ssl_enforce_tls or not proxy.ssl_allow_http):
+            http_vhost = f'''<VirtualHost *:{port}>
+    ServerName {proxy.local_domain}
+    Redirect permanent / https://{proxy.local_domain}/
+</VirtualHost>
+'''
+        if not ssl_ready:
             return http_vhost
         https_vhost = f'''<VirtualHost *:443>
     ServerName {proxy.local_domain}
@@ -577,9 +655,20 @@ class ConfigService:
             target = f"http://{target}:"
         cert_path, key_path = self.proxy_ssl_paths(proxy)
         ssl_block = ""
-        if proxy.ssl_enabled and cert_path.exists() and key_path.exists():
+        ssl_ready = proxy.ssl_enabled and cert_path.exists() and key_path.exists()
+        if ssl_ready:
             ssl_block = f'\n    listen 443 ssl;\n    ssl_certificate "{cert_path}";\n    ssl_certificate_key "{key_path}";'
-        return f'''server {{
+        redirect_block = ""
+        if ssl_ready and (proxy.ssl_enforce_tls or not proxy.ssl_allow_http):
+            redirect_block = (
+                f"server {{\n"
+                f"    listen {port};\n"
+                f"    server_name {proxy.local_domain};\n"
+                f"    return 301 https://$host$request_uri;\n"
+                f"}}\n\n"
+            )
+            port = 80
+        return f'''{redirect_block}server {{
     listen {port};
     {ssl_block.strip()}
     server_name {proxy.local_domain};
@@ -762,8 +851,10 @@ class ConfigService:
     def ensure_node_project_ssl_certificate(self, project: NodeProject) -> OperationResult:
         cert_path, key_path = self.node_project_ssl_paths(project)
         self.ssl_certs_dir().mkdir(parents=True, exist_ok=True)
-        if cert_path.exists() and key_path.exists():
+        if cert_path.exists() and key_path.exists() and self._certificate_has_domains(cert_path, [project.local_domain]):
             return OperationResult(True, "SSL certificate already exists.", {"cert_path": str(cert_path), "key_path": str(key_path)})
+        cert_path.unlink(missing_ok=True)
+        key_path.unlink(missing_ok=True)
 
         primary = project.local_domain
         config_text = (
@@ -777,8 +868,11 @@ class ConfigService:
             "\n"
             "[v3_req]\n"
             f"subjectAltName = DNS:{primary}\n"
+            "basicConstraints = critical, CA:true\n"
+            "keyUsage = critical, keyCertSign, cRLSign, digitalSignature\n"
+            "extendedKeyUsage = serverAuth\n"
         )
-        openssl_bin = os.environ.get("SERVER_ENGINE_OPENSSL") or shutil.which("openssl") or "/opt/homebrew/bin/openssl"
+        openssl_bin = self.openssl_binary()
         try:
             with tempfile.NamedTemporaryFile("w", encoding="utf-8", delete=False, suffix=".cnf") as handle:
                 handle.write(config_text)
@@ -805,6 +899,7 @@ class ConfigService:
                 check=True,
                 capture_output=True,
                 text=True,
+                env=self.openssl_environment(),
             )
             return OperationResult(True, "Created self-signed SSL certificate.", {"cert_path": str(cert_path), "key_path": str(key_path)})
         except subprocess.CalledProcessError as exc:
@@ -1021,6 +1116,24 @@ class ConfigService:
     def ssl_certs_dir(self) -> Path:
         return self.runtime_paths.config_dir / "ssl" / "certs"
 
+    def _certificate_has_domains(self, cert_path: Path, domains: list[str]) -> bool:
+        openssl_bin = self.openssl_binary()
+        try:
+            completed = subprocess.run(
+                [openssl_bin, "x509", "-in", str(cert_path), "-noout", "-text"],
+                capture_output=True,
+                text=True,
+                check=False,
+                env=self.openssl_environment(),
+            )
+            return (
+                completed.returncode == 0
+                and all(f"DNS:{domain}" in completed.stdout for domain in domains)
+                and "CA:TRUE" in completed.stdout
+            )
+        except OSError:
+            return False
+
     def site_ssl_paths(self, site: Site) -> tuple[Path, Path]:
         certs_dir = self.ssl_certs_dir()
         return certs_dir / f"{site.id}.crt", certs_dir / f"{site.id}.key"
@@ -1032,8 +1145,10 @@ class ConfigService:
     def ensure_site_ssl_certificate(self, site: Site) -> OperationResult:
         cert_path, key_path = self.site_ssl_paths(site)
         self.ssl_certs_dir().mkdir(parents=True, exist_ok=True)
-        if cert_path.exists() and key_path.exists():
+        if cert_path.exists() and key_path.exists() and self._certificate_has_domains(cert_path, site.all_domains()):
             return OperationResult(True, "SSL certificate already exists.", {"cert_path": str(cert_path), "key_path": str(key_path)})
+        cert_path.unlink(missing_ok=True)
+        key_path.unlink(missing_ok=True)
 
         primary = site.local_domain
         san_value = ",".join(f"DNS:{domain}" for domain in site.all_domains())
@@ -1048,8 +1163,11 @@ class ConfigService:
             "\n"
             "[v3_req]\n"
             f"subjectAltName = {san_value}\n"
+            "basicConstraints = critical, CA:true\n"
+            "keyUsage = critical, keyCertSign, cRLSign, digitalSignature\n"
+            "extendedKeyUsage = serverAuth\n"
         )
-        openssl_bin = os.environ.get("SERVER_ENGINE_OPENSSL") or shutil.which("openssl") or "/opt/homebrew/bin/openssl"
+        openssl_bin = self.openssl_binary()
         try:
             with tempfile.NamedTemporaryFile("w", encoding="utf-8", delete=False, suffix=".cnf") as handle:
                 handle.write(config_text)
@@ -1076,6 +1194,7 @@ class ConfigService:
                 check=True,
                 capture_output=True,
                 text=True,
+                env=self.openssl_environment(),
             )
             return OperationResult(True, "Created self-signed SSL certificate.", {"cert_path": str(cert_path), "key_path": str(key_path)})
         except subprocess.CalledProcessError as exc:

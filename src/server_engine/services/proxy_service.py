@@ -17,12 +17,14 @@ class ProxyService:
     def list_proxies(self) -> list[Proxy]:
         return self.repository.list_all()
 
-    def create_proxy(self, name: str, local_domain: str, target: str, notes: str = "", ssl_enabled: bool = False) -> Proxy:
+    def create_proxy(self, name: str, local_domain: str, target: str, notes: str = "", ssl_enabled: bool = False, ssl_enforce_tls: bool = False, ssl_allow_http: bool = True) -> Proxy:
         domain = local_domain.strip().lower()
         if self.site_repository.get_by_domain(domain) or self.node_repository.get_by_domain(domain) or self.repository.get_by_domain(domain):
             raise ValueError(f"Local domain already exists: {domain}")
         proxy = Proxy.create(name, domain, target, notes)
         proxy.ssl_enabled = bool(ssl_enabled)
+        proxy.ssl_enforce_tls = bool(ssl_enforce_tls) and proxy.ssl_enabled
+        proxy.ssl_allow_http = bool(ssl_allow_http) and not proxy.ssl_enforce_tls
         self.hosts_gateway.ensure_mapping(domain)
         return self.repository.save(proxy)
 

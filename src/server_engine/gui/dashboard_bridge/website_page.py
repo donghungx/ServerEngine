@@ -1,4 +1,6 @@
 import logging
+import json
+import shlex
 import sys
 
 from server_engine.core.models import FrameworkPreset
@@ -10,6 +12,10 @@ LOGGER = logging.getLogger("server_engine.website")
 
 
 class WebsitePageMixin(DashboardBridgeSignals):
+    @Property(bool, notify=operationFeedbackChanged)
+    def siteSslCertificateBusy(self) -> bool:
+        return bool(getattr(self, "_site_ssl_certificate_busy", False))
+
     @Property("QVariantList", notify=dataChanged)
     def websiteItems(self) -> list[dict[str, str]]:
         sites = self._container.site_service.list_sites()
@@ -1331,6 +1337,13 @@ class WebsitePageMixin(DashboardBridgeSignals):
     @Slot(str, bool, bool, result=bool)
     def updateSiteSslOptions(self, site_id: str, ssl_enforce_tls: bool, ssl_allow_http: bool) -> bool:
         try:
+            # Enforcing TLS must make plain HTTP unavailable. Keep this
+            # invariant in the backend even if an older QML client sends
+            # allow_http=true alongside enforce_tls=true.
+            ssl_enforce_tls = bool(ssl_enforce_tls)
+            ssl_allow_http = bool(ssl_allow_http)
+            ssl_enforce_tls = ssl_enforce_tls or not ssl_allow_http
+            ssl_allow_http = ssl_allow_http and not ssl_enforce_tls
             LOGGER.debug(
                 "updateSiteSslOptions requested site_id=%s ssl_enforce_tls=%s ssl_allow_http=%s",
                 site_id,
@@ -1382,7 +1395,14 @@ class WebsitePageMixin(DashboardBridgeSignals):
     @Slot(str, bool, bool, bool, result=bool)
     def updateSiteSslSettings(self, site_id: str, ssl_enabled: bool, ssl_enforce_tls: bool, ssl_allow_http: bool) -> bool:
         try:
-            LOGGER.debug(
+            # Enforcing TLS must make plain HTTP unavailable. Keep this
+            # invariant in the backend even if the UI submits both options
+            # as enabled.
+            ssl_enabled = bool(ssl_enabled)
+            ssl_allow_http = bool(ssl_allow_http)
+            ssl_enforce_tls = (bool(ssl_enforce_tls) or not ssl_allow_http) and ssl_enabled
+            ssl_allow_http = ssl_allow_http and not ssl_enforce_tls
+            LOGGER.info(
                 "updateSiteSslSettings requested site_id=%s ssl_enabled=%s ssl_enforce_tls=%s ssl_allow_http=%s",
                 site_id,
                 ssl_enabled,
@@ -1395,14 +1415,17 @@ class WebsitePageMixin(DashboardBridgeSignals):
                 ssl_enforce_tls=bool(ssl_enforce_tls),
                 ssl_allow_http=bool(ssl_allow_http),
             )
-            LOGGER.debug(
+            LOGGER.info(
                 "updateSiteSslSettings saved site_id=%s ssl_enabled=%s ssl_enforce_tls=%s ssl_allow_http=%s",
                 site.id,
                 site.ssl_enabled,
                 site.ssl_enforce_tls,
                 site.ssl_allow_http,
             )
-            if ssl_enabled:
+            # Enabling SSL must leave the project immediately usable. Create
+            # the certificate only when it is missing or invalid; ordinary
+            # settings saves never replace an existing certificate.
+            if site.ssl_enabled:
                 cert_result = self._container.config_service.ensure_site_ssl_certificate(site)
                 if not cert_result.success:
                     self._container.site_service.update_site(site_id, ssl_enabled=False)
@@ -1421,7 +1444,7 @@ class WebsitePageMixin(DashboardBridgeSignals):
                     raise ValueError(start_result.message or "Failed to restart web server after SSL settings update.")
             persisted = self._container.site_service.get_site(site_id)
             if persisted is not None:
-                LOGGER.debug(
+                LOGGER.info(
                     "updateSiteSslSettings persisted site_id=%s ssl_enabled=%s ssl_enforce_tls=%s ssl_allow_http=%s",
                     persisted.id,
                     persisted.ssl_enabled,
@@ -1452,29 +1475,88 @@ class WebsitePageMixin(DashboardBridgeSignals):
                 raise ValueError("Certificate trust is only supported on macOS.")
             security_bin = shutil.which("security") or "/usr/bin/security"
             login_keychain = str(Path.home() / "Library" / "Keychains" / "login.keychain-db")
-            completed = subprocess.run(
-                [
-                    security_bin,
-                    "add-trusted-cert",
-                    "-d",
-                    "-r",
-                    "trustRoot",
-                    "-k",
-                    login_keychain,
-                    str(cert_path),
-                ],
+            trust_command = [
+                security_bin,
+                "add-trusted-cert",
+                "-r",
+                "trustRoot",
+                "-p",
+                "ssl",
+                "-k",
+                login_keychain,
+                str(cert_path),
+            ]
+            LOGGER.info(
+                "Trust certificate start site_id=%s cert=%s cert_exists=%s cert_size=%s keychain=%s keychain_exists=%s security=%s command=%s",
+                site.id,
+                cert_path,
+                cert_path.exists(),
+                cert_path.stat().st_size if cert_path.exists() else 0,
+                login_keychain,
+                Path(login_keychain).exists(),
+                security_bin,
+                trust_command,
+            )
+            openssl_bin = os.environ.get("SERVER_ENGINE_OPENSSL") or shutil.which("openssl") or "/opt/homebrew/bin/openssl"
+            cert_info = subprocess.run(
+                [openssl_bin, "x509", "-in", str(cert_path), "-noout", "-subject", "-issuer", "-dates", "-text"],
                 capture_output=True,
                 text=True,
+                check=False,
+            )
+            LOGGER.info(
+                "Trust certificate metadata site_id=%s openssl_returncode=%s stdout=%r stderr=%r",
+                site.id,
+                cert_info.returncode,
+                cert_info.stdout,
+                cert_info.stderr,
+            )
+            completed = subprocess.run(trust_command,
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            LOGGER.info(
+                "Trust certificate command result site_id=%s returncode=%s stdout=%r stderr=%r",
+                site.id,
+                completed.returncode,
+                completed.stdout,
+                completed.stderr,
             )
             if completed.returncode != 0:
-                detail = (completed.stderr or completed.stdout or "Certificate trust failed.").strip()
-                raise ValueError(f"{detail} Try adding the certificate to your login keychain manually.")
+                LOGGER.warning(
+                    "Login keychain trust failed; retrying through System keychain with administrator authorization site_id=%s",
+                    site.id,
+                )
+                osascript_bin = shutil.which("osascript") or "/usr/bin/osascript"
+                shell_command = (
+                    f"/usr/bin/security add-trusted-cert -d -r trustRoot -p ssl "
+                    f"-k /Library/Keychains/System.keychain {shlex.quote(str(cert_path))}"
+                )
+                apple_script = f"do shell script {json.dumps(shell_command)} with administrator privileges"
+                admin_completed = subprocess.run(
+                    [osascript_bin, "-e", apple_script],
+                    capture_output=True,
+                    text=True,
+                    check=False,
+                )
+                LOGGER.info(
+                    "System keychain trust result site_id=%s returncode=%s stdout=%r stderr=%r",
+                    site.id,
+                    admin_completed.returncode,
+                    admin_completed.stdout,
+                    admin_completed.stderr,
+                )
+                if admin_completed.returncode != 0:
+                    detail = (admin_completed.stderr or admin_completed.stdout or completed.stderr or "Certificate trust failed.").strip()
+                    raise ValueError(f"{detail} Try adding the certificate to your login keychain manually.")
             self._last_operation_message = f"Trusted SSL certificate for {site.local_domain}"
             self._last_operation_error = False
             LOGGER.info("Trusted SSL certificate for site_id=%s domain=%s cert=%s", site.id, site.local_domain, str(cert_path))
             self.operationFeedbackChanged.emit()
             return True
         except Exception as exc:
+            LOGGER.exception("Trust certificate exception site_id=%s", site_id)
             LOGGER.warning("Failed to trust SSL certificate for site_id=%s: %s", site_id, exc)
             self._last_operation_message = str(exc)
             self._last_operation_error = True
@@ -1497,6 +1579,79 @@ class WebsitePageMixin(DashboardBridgeSignals):
         except Exception as exc:
             self._last_operation_message = str(exc)
             self._last_operation_error = True
+            self.operationFeedbackChanged.emit()
+            return False
+
+    @Slot(str, result=bool)
+    def ensureSiteSslCertificateAsync(self, site_id: str) -> bool:
+        if self.siteSslCertificateBusy:
+            return False
+        site_id = str(site_id or "").strip()
+        if not site_id:
+            return False
+        self._site_ssl_certificate_busy = True
+        self._last_operation_message = "Creating SSL certificate..."
+        self._last_operation_error = False
+        self.operationFeedbackChanged.emit()
+        thread = QThread(self)
+        worker = SslCertificateWorker(self._container, "site", site_id)
+        self._site_ssl_certificate_thread = thread
+        self._site_ssl_certificate_worker = worker
+        worker.moveToThread(thread)
+        thread.started.connect(worker.run)
+        worker.completed.connect(self._finish_site_ssl_certificate)
+        worker.completed.connect(thread.quit)
+        thread.finished.connect(worker.deleteLater)
+        thread.finished.connect(thread.deleteLater)
+        thread.start()
+        return True
+
+    @Slot(bool, str)
+    def _finish_site_ssl_certificate(self, success: bool, message: str) -> None:
+        self._site_ssl_certificate_busy = False
+        self._last_operation_message = message
+        self._last_operation_error = not success
+        self.operationFeedbackChanged.emit()
+        self.dataChanged.emit()
+
+    @Slot(str, result=bool)
+    def regenerateSiteSelfSignedCertificate(self, site_id: str) -> bool:
+        try:
+            site = self._container.site_service.get_site(site_id)
+            if site is None:
+                raise ValueError(f"Site not found: {site_id}")
+            cert_path, key_path = self._container.config_service.site_ssl_paths(site)
+            cert_path.unlink(missing_ok=True)
+            key_path.unlink(missing_ok=True)
+            result = self._container.config_service.ensure_site_ssl_certificate(site)
+            if not result.success:
+                raise ValueError(result.message)
+            # Apache/Nginx keeps the certificate loaded in its process. A
+            # regenerated file is not served until the active web server is
+            # restarted, otherwise browsers continue seeing the old cert.
+            settings = self._container.settings_service.get_settings()
+            web_service_id = settings.active_web_server.value
+            status = self._container.stack_service.status()
+            web_service = next((item for item in status.services if item.service_id == web_service_id), None)
+            if web_service is not None and web_service.state.value == "running":
+                LOGGER.info(
+                    "Restarting web server after SSL certificate regeneration site_id=%s service=%s",
+                    site.id,
+                    web_service_id,
+                )
+                self._container.stack_service.stop_service(web_service_id)
+                start_result = self._container.stack_service.start_service(web_service_id)
+                if start_result.state.value == "error":
+                    raise ValueError(start_result.message or "Failed to restart web server after certificate regeneration.")
+            self._last_operation_message = f"Regenerated SSL certificate for {site.local_domain}."
+            self._last_operation_error = False
+            self.operationFeedbackChanged.emit()
+            self.dataChanged.emit()
+            return True
+        except Exception as exc:
+            self._last_operation_message = str(exc)
+            self._last_operation_error = True
+            LOGGER.exception("Failed to regenerate SSL certificate for site_id=%s", site_id)
             self.operationFeedbackChanged.emit()
             return False
 

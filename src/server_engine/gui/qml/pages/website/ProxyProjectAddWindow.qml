@@ -11,11 +11,16 @@ Item {
     readonly property var bridge: root ? root.dashboardBridge : null
     property string proxyId: ""
     property var proxyData: ({})
+    property bool proxySslEnforceTls: false
+    property bool proxySslAllowHttp: true
+    property string proxyCertFile: ""
+    property string proxyKeyFile: ""
+    readonly property bool proxySslCertificateBusy: bridge ? !!bridge.proxySslCertificateBusy : false
 
     Window {
         id: proxyWindow
         width: 800
-        height: 450
+        height: 650
         minimumWidth: width
         maximumWidth: width
         minimumHeight: height
@@ -35,6 +40,10 @@ Item {
             proxyTarget.text = ""
             proxyNotes.text = ""
             proxySslCheckbox.checked = false
+            proxySslEnforceTls = false
+            proxySslAllowHttp = true
+            proxyCertFile = ""
+            proxyKeyFile = ""
             validationMessage = ""
             validationError = false
         }
@@ -44,6 +53,10 @@ Item {
             proxyTarget.text = String(proxyData.target || "")
             proxyNotes.text = String(proxyData.notes || "")
             proxySslCheckbox.checked = Boolean(proxyData.ssl_enabled)
+            proxySslEnforceTls = Boolean(proxyData.ssl_enforce_tls)
+            proxySslAllowHttp = proxyData.ssl_allow_http !== undefined ? Boolean(proxyData.ssl_allow_http) : true
+            proxyCertFile = String(proxyData.ssl_certificate_path || "")
+            proxyKeyFile = String(proxyData.ssl_key_path || "")
             validationMessage = ""
             validationError = false
         }
@@ -145,7 +158,111 @@ Item {
                     title: "Enable SSL"
                     description: "Create a local HTTPS certificate and serve this proxy at https://your-domain."
                     checked: false
-                    itemEnabled: !proxyWindow.saving
+                    itemEnabled: !proxyWindow.saving && !host.proxySslCertificateBusy
+                    onToggled: function(value) {
+                        if (value && host.proxyId.length > 0 && bridge) {
+                            var started = bridge.ensureProxySslCertificate(host.proxyId)
+                            if (!started) {
+                                proxySslCheckbox.checked = false
+                            }
+                        }
+                    }
+                    Layout.fillWidth: true
+                }
+                Text {
+                    visible: host.proxySslCertificateBusy
+                    text: "Creating SSL certificate..."
+                    color: Theme.muted
+                    font.pixelSize: 12
+                    Layout.fillWidth: true
+                    Layout.leftMargin: 198
+                }
+                Components.SettingsLabeledInput {
+                    visible: proxySslCheckbox.checked && host.proxyId.length > 0
+                    title: "Certificate file"
+                    description: "The local HTTPS certificate used by this proxy."
+                    RowLayout {
+                        Layout.fillWidth: true
+                        spacing: 10
+                        Components.AppTextField {
+                            Layout.fillWidth: true
+                            text: host.proxyCertFile
+                            readOnly: true
+                        }
+                        Components.AppButton {
+                            text: "Reveal in Finder"
+                            enabled: host.proxyCertFile.length > 0
+                            onClicked: if (bridge && bridge.revealInFinder) bridge.revealInFinder(host.proxyCertFile)
+                        }
+                    }
+                }
+                Components.SettingsLabeledInput {
+                    visible: proxySslCheckbox.checked && host.proxyId.length > 0
+                    title: "Certificate key file"
+                    description: "The private key used by this proxy's HTTPS certificate."
+                    RowLayout {
+                        Layout.fillWidth: true
+                        spacing: 10
+                        Components.AppTextField {
+                            Layout.fillWidth: true
+                            text: host.proxyKeyFile
+                            readOnly: true
+                        }
+                        Components.AppButton {
+                            text: "Reveal in Finder"
+                            enabled: host.proxyKeyFile.length > 0
+                            onClicked: if (bridge && bridge.revealInFinder) bridge.revealInFinder(host.proxyKeyFile)
+                        }
+                    }
+                }
+                RowLayout {
+                    visible: proxySslCheckbox.checked && host.proxyId.length > 0
+                    Layout.fillWidth: true
+                    Layout.leftMargin: 198
+                    spacing: 8
+                    Components.StatusTextButton {
+                        label: "Regenerate certificate"
+                        iconSource: "../icons/lucide/rotate-cw.svg"
+                        enabled: !!bridge && host.proxyId.length > 0
+                        tooltip: "Create a new self-signed certificate for this proxy."
+                        onClicked: {
+                            var ok = bridge.regenerateProxySelfSignedCertificate(host.proxyId)
+                            host.root.addSiteFeedback = bridge.lastOperationMessage
+                            host.root.addSiteFeedbackError = !ok
+                        }
+                    }
+                    Components.StatusTextButton {
+                        label: "Trust certificate"
+                        iconSource: "../icons/lucide/shield-check.svg"
+                        enabled: !!bridge && host.proxyId.length > 0 && host.proxyCertFile.length > 0
+                        tooltip: "Trust this certificate in macOS for local HTTPS development."
+                        onClicked: {
+                            var ok = bridge.trustProxyCertificate(host.proxyId)
+                            host.root.addSiteFeedback = bridge.lastOperationMessage
+                            host.root.addSiteFeedbackError = !ok
+                        }
+                    }
+                }
+                Components.SettingsCheckableOption {
+                    title: "Enforce TLS"
+                    description: "Redirect HTTP requests to HTTPS and require encrypted connections."
+                    checked: proxySslEnforceTls
+                    visible: proxySslCheckbox.checked
+                    itemEnabled: !proxyWindow.saving && proxySslCheckbox.checked
+                    onToggled: function(value) {
+                        proxySslEnforceTls = value
+                        if (value) proxySslAllowHttp = false
+                    }
+                    Layout.fillWidth: true
+                }
+                Components.SettingsCheckableOption {
+                    title: "Allow HTTP"
+                    description: "Keep plain HTTP connections available for this proxy."
+                    checked: proxySslAllowHttp
+                    visible: proxySslCheckbox.checked
+                    itemEnabled: !proxyWindow.saving && proxySslCheckbox.checked && !proxySslEnforceTls
+                    opacity: itemEnabled ? 1.0 : 0.45
+                    onToggled: function(value) { proxySslAllowHttp = value }
                     Layout.fillWidth: true
                 }
             }
@@ -167,19 +284,20 @@ Item {
                 Item { Layout.fillWidth: true }
                 Components.AppButton {
                     text: "Cancel"
+                    enabled: !host.proxySslCertificateBusy
                     onClicked: proxyWindow.close()
                 }
                 Components.AppButton {
                     text: proxyWindow.saving ? "Saving..." : (host.proxyId.length > 0 ? "Save Changes" : "Create Proxy Project")
-                    enabled: !proxyWindow.saving
+                    enabled: !proxyWindow.saving && !host.proxySslCertificateBusy
                     onClicked: {
                         if (!proxyWindow.validateForm()) {
                             return
                         }
                         proxyWindow.saving = true
                         var ok = bridge && host.proxyId.length > 0
-                            ? bridge.updateProxy(host.proxyId, proxyDomain.text, proxyDomain.text, proxyTarget.text, proxyNotes.text, proxySslCheckbox.checked)
-                            : bridge && bridge.createProxy(proxyDomain.text, proxyDomain.text, proxyTarget.text, proxyNotes.text, proxySslCheckbox.checked)
+                            ? bridge.updateProxy(host.proxyId, proxyDomain.text, proxyDomain.text, proxyTarget.text, proxyNotes.text, proxySslCheckbox.checked, proxySslEnforceTls, proxySslAllowHttp)
+                            : bridge && bridge.createProxy(proxyDomain.text, proxyDomain.text, proxyTarget.text, proxyNotes.text, proxySslCheckbox.checked, proxySslEnforceTls, proxySslAllowHttp)
                         if (ok) {
                             host.root.addProxyOpen = false
                         } else {

@@ -2,6 +2,10 @@ from ._shared import *
 
 
 class NodeProjectsPageMixin(DashboardBridgeSignals):
+    @Property(bool, notify=operationFeedbackChanged)
+    def nodeSslCertificateBusy(self) -> bool:
+        return bool(getattr(self, "_node_ssl_certificate_busy", False))
+
     @Property("QVariantList", notify=dataChanged)
     def nodeProjectItems(self) -> list[dict[str, str]]:
         items: list[dict[str, str]] = []
@@ -356,7 +360,8 @@ class NodeProjectsPageMixin(DashboardBridgeSignals):
             notes = str(payload.get("notes", "")).strip()
             ssl_enabled = bool(payload.get("ssl_enabled", False))
             ssl_enforce_tls = bool(payload.get("ssl_enforce_tls", False))
-            ssl_allow_http = bool(payload.get("ssl_allow_http", True))
+            ssl_enforce_tls = ssl_enforce_tls and ssl_enabled
+            ssl_allow_http = bool(payload.get("ssl_allow_http", True)) and not ssl_enforce_tls
             port = int(str(payload.get("port", "0")).strip() or "0")
             if not local_domain:
                 raise ValueError("Domain is required.")
@@ -427,6 +432,9 @@ class NodeProjectsPageMixin(DashboardBridgeSignals):
     @Slot(str, bool, bool, bool, result=bool)
     def updateNodeProjectSslSettings(self, project_id: str, ssl_enabled: bool, ssl_enforce_tls: bool, ssl_allow_http: bool) -> bool:
         try:
+            ssl_enabled = bool(ssl_enabled)
+            ssl_enforce_tls = bool(ssl_enforce_tls) and ssl_enabled
+            ssl_allow_http = bool(ssl_allow_http) and not ssl_enforce_tls
             project = self._container.node_project_service.update_project(
                 project_id.strip(),
                 ssl_enabled=bool(ssl_enabled),
@@ -472,6 +480,35 @@ class NodeProjectsPageMixin(DashboardBridgeSignals):
             return False
 
     @Slot(str, result=bool)
+    def ensureNodeProjectSslCertificateAsync(self, project_id: str) -> bool:
+        if self.nodeSslCertificateBusy or not str(project_id or "").strip():
+            return False
+        self._node_ssl_certificate_busy = True
+        self._last_operation_message = "Creating SSL certificate..."
+        self._last_operation_error = False
+        self.operationFeedbackChanged.emit()
+        thread = QThread(self)
+        worker = SslCertificateWorker(self._container, "node", str(project_id).strip())
+        self._node_ssl_certificate_thread = thread
+        self._node_ssl_certificate_worker = worker
+        worker.moveToThread(thread)
+        thread.started.connect(worker.run)
+        worker.completed.connect(self._finish_node_ssl_certificate)
+        worker.completed.connect(thread.quit)
+        thread.finished.connect(worker.deleteLater)
+        thread.finished.connect(thread.deleteLater)
+        thread.start()
+        return True
+
+    @Slot(bool, str)
+    def _finish_node_ssl_certificate(self, success: bool, message: str) -> None:
+        self._node_ssl_certificate_busy = False
+        self._last_operation_message = message
+        self._last_operation_error = not success
+        self.operationFeedbackChanged.emit()
+        self.dataChanged.emit()
+
+    @Slot(str, result=bool)
     def trustNodeProjectCertificate(self, project_id: str) -> bool:
         try:
             project = self._container.node_project_service.repository.get(project_id.strip())
@@ -488,9 +525,10 @@ class NodeProjectsPageMixin(DashboardBridgeSignals):
                 [
                     security_bin,
                     "add-trusted-cert",
-                    "-d",
                     "-r",
                     "trustRoot",
+                    "-p",
+                    "ssl",
                     "-k",
                     login_keychain,
                     str(cert_path),

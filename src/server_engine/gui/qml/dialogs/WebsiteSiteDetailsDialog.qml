@@ -38,7 +38,7 @@ Window {
     }
 
     width: 736
-    height: 520
+    height: 560
     minimumWidth: width
     maximumWidth: width
 

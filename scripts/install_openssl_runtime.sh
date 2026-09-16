@@ -291,6 +291,40 @@ fi
 mkdir -p "$(dirname "$output")"
 cp -R "$prefix" "$output"
 
+# IMPORTANT: Homebrew OpenSSL binaries keep absolute Cellar paths embedded in
+# their Mach-O load commands after copying. DYLD_LIBRARY_PATH is not reliable
+# for this app launch context, so every staged binary/library must be relinked
+# to the libraries inside this runtime before it is deployed or signed.
+if command -v install_name_tool >/dev/null 2>&1 && command -v otool >/dev/null 2>&1; then
+    for artifact in "$output/bin/openssl" "$output/lib/libssl.3.dylib" "$output/lib/libcrypto.3.dylib"; do
+        [ -f "$artifact" ] || continue
+        otool -L "$artifact" | tail -n +2 | sed 's/^[[:space:]]*//' | cut -d ' ' -f 1 | while IFS= read -r dependency; do
+            case "$dependency" in
+                */libssl.3.dylib|*/libcrypto.3.dylib)
+                    library_name="$(basename "$dependency")"
+                    if [ "$artifact" = "$output/bin/openssl" ]; then
+                        replacement="@loader_path/../lib/$library_name"
+                    else
+                        replacement="@loader_path/$library_name"
+                    fi
+                    install_name_tool -change "$dependency" "$replacement" "$artifact"
+                    ;;
+            esac
+        done
+    done
+    install_name_tool -id '@rpath/libssl.3.dylib' "$output/lib/libssl.3.dylib" 2>/dev/null || true
+    install_name_tool -id '@rpath/libcrypto.3.dylib' "$output/lib/libcrypto.3.dylib" 2>/dev/null || true
+else
+    printf 'install_name_tool and otool are required to make OpenSSL portable on macOS.\n' >&2
+    exit 1
+fi
+
+# Do not allow a broken Homebrew-linked runtime to leave the staging area.
+if otool -L "$output/bin/openssl" | grep -E '/opt/homebrew/(Cellar|opt)/openssl' >/dev/null 2>&1; then
+    printf 'OpenSSL is still linked to Homebrew paths after relinking: %s\n' "$output/bin/openssl" >&2
+    exit 1
+fi
+
 for req in "$output/bin/openssl" "$output/lib"; do
     if [ ! -e "$req" ]; then
         printf 'Staged OpenSSL runtime looks incomplete (missing %s).\n' "$req" >&2

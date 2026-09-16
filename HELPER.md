@@ -11,6 +11,15 @@ find "$RUNTIME" -type f \( -perm -111 -o -name '*.dylib' \) -exec codesign --for
 
 codesign --force --deep --sign - "$RUNTIME"
 
+### Bundled OpenSSL note
+
+The OpenSSL runtime must be portable inside Server Engine. Homebrew embeds
+absolute `/opt/homebrew/Cellar` or `/opt/homebrew/opt` library paths in its
+macOS binaries when copied. `DYLD_LIBRARY_PATH` alone is not sufficient for
+the app launch context. Always install it with
+`scripts/install_openssl_runtime.sh`; the script rewrites those Mach-O paths
+to the runtime's own `libssl` and `libcrypto` files before deployment/signing.
+
 
 ## Local development setup (donghungx)
 
