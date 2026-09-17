@@ -113,6 +113,55 @@ class ProxyPageMixin:
             self.operationFeedbackChanged.emit()
             return False
 
+    @Slot(str, result=str)
+    def proxyProjectResponseLogPath(self, proxy_id: str) -> str:
+        try:
+            proxy = self._container.proxy_service.repository.get(str(proxy_id or "").strip())
+            if proxy is None:
+                return ""
+            settings = self._container.settings_service.get_settings()
+            logs_dir = (
+                self._container.config_service.nginx_logs_dir()
+                if settings.active_web_server.value == "nginx"
+                else self._container.config_service.apache_logs_dir()
+            )
+            primary = logs_dir / f"{proxy.id}-access.log"
+            ssl_variant = logs_dir / f"{proxy.id}-ssl-access.log"
+            for candidate in (primary, ssl_variant):
+                if candidate.exists():
+                    return str(candidate)
+            return str(primary)
+        except Exception:
+            return ""
+
+    @Slot(str, int, result=str)
+    def proxyProjectResponseLogContent(self, proxy_id: str, lines: int) -> str:
+        try:
+            proxy = self._container.proxy_service.repository.get(str(proxy_id or "").strip())
+            if proxy is None:
+                return ""
+            cleaned_lines = max(1, min(int(lines), 2000))
+            settings = self._container.settings_service.get_settings()
+            logs_dir = (
+                self._container.config_service.nginx_logs_dir()
+                if settings.active_web_server.value == "nginx"
+                else self._container.config_service.apache_logs_dir()
+            )
+            candidates = [
+                path for path in (
+                    logs_dir / f"{proxy.id}-access.log",
+                    logs_dir / f"{proxy.id}-ssl-access.log",
+                ) if path.exists()
+            ]
+            if not candidates:
+                return f"Log file not found yet: {logs_dir / f'{proxy.id}-access.log'}"
+            rows: list[str] = []
+            for path in candidates:
+                rows.extend(path.read_text(encoding="utf-8", errors="replace").splitlines())
+            return "\n".join(rows[-cleaned_lines:])
+        except Exception as exc:
+            return f"Unable to load log: {exc}"
+
     @Slot(str, result=bool)
     def ensureProxySslCertificate(self, proxy_id: str) -> bool:
         """Create a proxy certificate in a worker so the QML window stays responsive."""

@@ -23,6 +23,7 @@ Components.ShellCard {
     property bool addSiteOpen: false
     property bool addNodeProjectOpen: false
     property bool addProxyOpen: false
+    property bool proxyDetailsOpen: false
     property string editingProxyId: ""
     property var editingProxyData: ({})
     property bool editNodeProjectMode: false
@@ -827,6 +828,12 @@ Components.ShellCard {
         id: addProxyProjectWindow
         root: root
         proxyId: root.editingProxyId
+        proxyData: root.editingProxyData
+    }
+
+    Dialogs.ProxyProjectDetailsDialog {
+        id: proxyProjectDetailsWindow
+        root: root
         proxyData: root.editingProxyData
     }
 

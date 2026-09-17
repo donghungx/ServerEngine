@@ -158,7 +158,7 @@ Item {
                                             onClicked: {
                                                 tableRoot.pageRoot.editingProxyId = String(modelData.id || "")
                                                 tableRoot.pageRoot.editingProxyData = modelData
-                                                tableRoot.pageRoot.addProxyOpen = true
+                                                tableRoot.pageRoot.proxyDetailsOpen = true
                                             }
                                         }
                                         Components.QuickActionButton {
