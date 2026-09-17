@@ -19,119 +19,60 @@ Item {
 
     Window {
         id: proxyWindow
-        width: 800
-        height: 650
+        width: 720
+        height: 520
         minimumWidth: width
         maximumWidth: width
         minimumHeight: height
         maximumHeight: height
         visible: host.root ? host.root.addProxyOpen : false
-        title: host.proxyId.length > 0 ? "Modify Proxy Project" : "Add Proxy Project"
-        flags: Qt.Window | Qt.WindowTitleHint | Qt.WindowCloseButtonHint | Qt.WindowMinimizeButtonHint | Qt.WindowMaximizeButtonHint
-        modality: Qt.ApplicationModal
-        color: Theme.surface
+        title: ""
+        color: "transparent"
+        modality: Qt.WindowModal
+        transientParent: host.root && host.root.Window ? host.root.Window.window : null
+        flags: Qt.Dialog | Qt.WindowTitleHint | Qt.WindowCloseButtonHint | Qt.FramelessWindowHint
 
         property bool saving: false
         property string validationMessage: ""
         property bool validationError: false
 
-        function clearForm() {
-            proxyDomain.text = ""
-            proxyTarget.text = ""
-            proxyNotes.text = ""
-            proxySslCheckbox.checked = false
-            proxySslEnforceTls = false
-            proxySslAllowHttp = true
-            proxyCertFile = ""
-            proxyKeyFile = ""
-            validationMessage = ""
-            validationError = false
-        }
-
-        function loadProxy() {
-            proxyDomain.text = String(proxyData.local_domain || "")
-            proxyTarget.text = String(proxyData.target || "")
-            proxyNotes.text = String(proxyData.notes || "")
-            proxySslCheckbox.checked = Boolean(proxyData.ssl_enabled)
-            proxySslEnforceTls = Boolean(proxyData.ssl_enforce_tls)
-            proxySslAllowHttp = proxyData.ssl_allow_http !== undefined ? Boolean(proxyData.ssl_allow_http) : true
-            proxyCertFile = String(proxyData.ssl_certificate_path || "")
-            proxyKeyFile = String(proxyData.ssl_key_path || "")
-            validationMessage = ""
-            validationError = false
-        }
-
-        function validateForm() {
-            var domain = proxyDomain.text.trim().toLowerCase()
-            var target = proxyTarget.text.trim()
-            if (domain.length === 0) {
-                validationMessage = "A local domain is required."
-                validationError = true
-                return false
-            }
-            if (target.length === 0) {
-                validationMessage = "A target URL or Unix socket path is required."
-                validationError = true
-                return false
-            }
-            if (domain.indexOf(".") < 1 || domain.indexOf(" ") >= 0) {
-                validationMessage = "Use a domain such as app.local or dashboard.test."
-                validationError = true
-                return false
-            }
-            if (!(target.indexOf("http://") === 0 || target.indexOf("https://") === 0 || target.indexOf("unix:") === 0 || target.indexOf("/") === 0)) {
-                validationMessage = "Target must start with http://, https://, unix:, or /."
-                validationError = true
-                return false
-            }
-            if (host.root && host.root.domainExists && host.root.domainExists(domain)) {
-                validationMessage = "That domain is already in use."
-                validationError = true
-                return false
-            }
-            validationMessage = ""
-            validationError = false
-            return true
-        }
-
-        onVisibleChanged: {
-            if (visible) {
-                saving = false
-                clearForm()
-                if (host.proxyId.length > 0) {
-                    loadProxy()
-                }
-                proxyDomain.forceActiveFocus()
-            }
-        }
-
-        onClosing: {
-            if (host.root) {
-                host.root.addProxyOpen = false
-            }
-        }
-
-        ColumnLayout {
+        Rectangle {
             anchors.fill: parent
-            anchors.margins: 26
-            spacing: 16
+            radius: 20
+            color: Theme.surface
+            clip: true
+
+            MouseArea {
+                anchors.top: parent.top
+                anchors.left: parent.left
+                anchors.right: parent.right
+                height: 24
+                acceptedButtons: Qt.LeftButton
+                cursorShape: Qt.ArrowCursor
+                onPressed: function(mouse) {
+                    proxyWindow.startSystemMove()
+                    mouse.accepted = true
+                }
+            }
 
             ColumnLayout {
+                anchors.fill: parent
+                anchors.margins: 20
+                spacing: 12
+
+            Text {
                 Layout.fillWidth: true
-                spacing: 5
-                Text {
-                    text: host.proxyId.length > 0 ? "Modify Proxy Project" : "Add Proxy Project"
-                    color: Theme.text
-                    font.pixelSize: 22
-                    font.weight: Font.DemiBold
-                }
-                Text {
-                    Layout.fillWidth: true
-                    text: "Expose a Docker, Next.js, React, or any local service through a friendly domain. Server Engine forwards traffic; it does not start the target application."
-                    color: Theme.muted
-                    font.pixelSize: 12
-                    wrapMode: Text.WordWrap
-                }
+                text: host.proxyId.length > 0 ? "Modify Proxy Project" : "Add Proxy Project"
+                color: Theme.text
+                font.pixelSize: 13
+                font.weight: Font.Medium
+                elide: Text.ElideRight
+            }
+
+            Rectangle {
+                Layout.fillWidth: true
+                height: 1
+                color: Theme.border
             }
 
             ColumnLayout {
@@ -269,13 +210,19 @@ Item {
 
             Item { Layout.fillHeight: true }
 
-            Text {
-                Layout.fillWidth: true
-                visible: proxyWindow.validationMessage.length > 0 || (host.root && host.root.addSiteFeedback.length > 0)
+                Text {
+                    Layout.fillWidth: true
+                    visible: proxyWindow.validationMessage.length > 0 || (host.root && host.root.addSiteFeedback.length > 0)
                 text: proxyWindow.validationMessage.length > 0 ? proxyWindow.validationMessage : host.root.addSiteFeedback
                 color: proxyWindow.validationError || (host.root && host.root.addSiteFeedbackError) ? "#d66a6a" : Theme.accentStrong
                 font.pixelSize: 12
                 wrapMode: Text.WordWrap
+            }
+
+            Rectangle {
+                Layout.fillWidth: true
+                height: 1
+                color: Theme.border
             }
 
             RowLayout {
@@ -305,6 +252,85 @@ Item {
                         }
                     }
                 }
+            }
+            }
+        }
+
+        function clearForm() {
+            proxyDomain.text = ""
+            proxyTarget.text = ""
+            proxyNotes.text = ""
+            proxySslCheckbox.checked = false
+            proxySslEnforceTls = false
+            proxySslAllowHttp = true
+            proxyCertFile = ""
+            proxyKeyFile = ""
+            validationMessage = ""
+            validationError = false
+        }
+
+        function loadProxy() {
+            proxyDomain.text = String(proxyData.local_domain || "")
+            proxyTarget.text = String(proxyData.target || "")
+            proxyNotes.text = String(proxyData.notes || "")
+            proxySslCheckbox.checked = Boolean(proxyData.ssl_enabled)
+            proxySslEnforceTls = Boolean(proxyData.ssl_enforce_tls)
+            proxySslAllowHttp = proxyData.ssl_allow_http !== undefined ? Boolean(proxyData.ssl_allow_http) : true
+            proxyCertFile = String(proxyData.ssl_certificate_path || "")
+            proxyKeyFile = String(proxyData.ssl_key_path || "")
+            validationMessage = ""
+            validationError = false
+        }
+
+        function validateForm() {
+            var domain = proxyDomain.text.trim().toLowerCase()
+            var target = proxyTarget.text.trim()
+            if (domain.length === 0) {
+                validationMessage = "A local domain is required."
+                validationError = true
+                return false
+            }
+            if (target.length === 0) {
+                validationMessage = "A target URL or Unix socket path is required."
+                validationError = true
+                return false
+            }
+            if (domain.indexOf(".") < 1 || domain.indexOf(" ") >= 0) {
+                validationMessage = "Use a domain such as app.local or dashboard.test."
+                validationError = true
+                return false
+            }
+            if (!(target.indexOf("http://") === 0 || target.indexOf("https://") === 0 || target.indexOf("unix:") === 0 || target.indexOf("/") === 0)) {
+                validationMessage = "Target must start with http://, https://, unix:, or /."
+                validationError = true
+                return false
+            }
+            if (host.root && host.root.domainExists && host.root.domainExists(domain)) {
+                validationMessage = "That domain is already in use."
+                validationError = true
+                return false
+            }
+            validationMessage = ""
+            validationError = false
+            return true
+        }
+
+        onVisibleChanged: {
+            if (visible) {
+                saving = false
+                clearForm()
+                if (host.proxyId.length > 0) {
+                    loadProxy()
+                }
+                raise()
+                requestActivate()
+                proxyDomain.forceActiveFocus()
+            }
+        }
+
+        onClosing: {
+            if (host.root) {
+                host.root.addProxyOpen = false
             }
         }
     }

@@ -316,7 +316,7 @@ class ConfigService:
             f'ServerName localhost\n'
             f'User nobody\n'
             f'Group staff\n'
-            f"Timeout 10\n"
+            f"Timeout 90\n"
             f"KeepAlive Off\n"
             f"HostnameLookups Off\n"
             f"<IfModule mpm_event_module>\n"

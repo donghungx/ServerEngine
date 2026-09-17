@@ -94,11 +94,11 @@ Window {
         root.apachePortDraft = String(dashboardBridge.settingsWebPort || "8080")
         root.apachePortLoaded = root.apachePortDraft
         root.apacheErrorLogPathDraft = dashboardBridge.settingsApacheErrorLogPath
-        root.apacheGeneralLogLevelDraft = "warn"
-        root.apacheGeneralDefineFlagsDraft = ""
-        root.apacheGeneralSyntaxCheckDraft = false
-        root.apacheGeneralDebugModeDraft = false
-        root.apacheGeneralSkipDocumentRootCheckDraft = false
+        apacheWebServerWindow.apacheGeneralLogLevelDraft = "warn"
+        apacheWebServerWindow.apacheGeneralDefineFlagsDraft = ""
+        apacheWebServerWindow.apacheGeneralSyntaxCheckDraft = false
+        apacheWebServerWindow.apacheGeneralDebugModeDraft = false
+        apacheWebServerWindow.apacheGeneralSkipDocumentRootCheckDraft = false
     }
 
     function apacheSectionSource(sectionLabel) {

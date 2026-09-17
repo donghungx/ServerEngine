@@ -1,5 +1,6 @@
 import QtQuick
 import QtQuick.Controls
+import Qt.labs.platform as Native
 import "../theme"
 import "../i18n"
 
@@ -11,6 +12,7 @@ Rectangle {
     signal cliRequested()
     signal modifyRequested()
     signal deleteRequested()
+    readonly property bool nativeMenuIconsSupported: root.dashboardBridge && root.dashboardBridge.macOS26OrLater
 
     property string sslStatus: rowData.ssl === "Not Set" ? "Off" : "On"
 
@@ -126,13 +128,6 @@ Rectangle {
                 spacing: 8
 
                 QuickActionButton {
-                    text: Strings.t("open.path")
-                    iconSource: "../icons/lucide/folder-open.svg"
-                    tooltip: Strings.t("open.path")
-                    onClicked: Qt.openUrlExternally(projectFolderUrl())
-                }
-
-                QuickActionButton {
                     text: Strings.t("cli")
                     iconSource: "../icons/lucide/terminal.svg"
                     tooltip: Strings.t("open.cli")
@@ -153,10 +148,89 @@ Rectangle {
                 }
 
                 QuickActionButton {
+                    id: moreButton
+                    text: ""
+                    iconSource: "../icons/lucide/ellipsis-vertical.svg"
+                    tooltip: "Options"
+                    onClicked: {
+                        moreMenu.refreshOpenWithEditors()
+                        moreMenu.open(moreButton)
+                    }
+                }
+            }
+
+            Native.Menu {
+                id: moreMenu
+                property string projectPath: String(root.rowData.project_path || "")
+                property string siteUrl: String(root.rowData.browse_url || "")
+                property var openWithEditors: []
+
+                function refreshOpenWithEditors() {
+                    openWithEditors = root.dashboardBridge && root.dashboardBridge.websiteOpenWithEditors
+                        ? root.dashboardBridge.websiteOpenWithEditors(projectPath)
+                        : []
+                }
+
+                Native.MenuItem {
+                    text: Strings.t("open.path")
+                    enabled: moreMenu.projectPath.length > 0
+                    icon.name: root.nativeMenuIconsSupported ? "folder" : ""
+                    icon.source: "../icons/lucide/folder-open.svg"
+                    onTriggered: root.dashboardBridge.revealInFinder(moreMenu.projectPath)
+                }
+
+                Native.MenuItem {
+                    text: "Copy Path"
+                    enabled: moreMenu.projectPath.length > 0
+                    icon.name: root.nativeMenuIconsSupported ? "edit-copy" : ""
+                    icon.source: "../icons/lucide/file-text.svg"
+                    onTriggered: root.dashboardBridge.copyTextToClipboard(moreMenu.projectPath)
+                }
+
+                Native.MenuItem {
+                    text: "Open with Terminal"
+                    enabled: moreMenu.projectPath.length > 0
+                    icon.name: root.nativeMenuIconsSupported ? "terminal" : ""
+                    icon.source: "../icons/lucide/terminal.svg"
+                    onTriggered: root.dashboardBridge.openPathInTerminal(moreMenu.projectPath)
+                }
+
+                Native.Menu {
+                    id: openWithMenu
+                    title: Strings.t("open.with")
+
+                    Component.onCompleted: moreMenu.insertMenu(0, openWithMenu)
+
+                    Instantiator {
+                        model: moreMenu.openWithEditors
+                        delegate: Native.MenuItem {
+                            required property var modelData
+                            text: String(modelData.label || "")
+                            icon.source: String(modelData.iconSource || "")
+                            onTriggered: root.dashboardBridge.openPathWithEditor(
+                                moreMenu.projectPath,
+                                String(modelData.id || "")
+                            )
+                        }
+                        onObjectAdded: function(index, object) { openWithMenu.insertItem(index, object) }
+                        onObjectRemoved: function(index, object) { openWithMenu.removeItem(object) }
+                    }
+
+                    Instantiator {
+                        model: moreMenu.openWithEditors.length === 0 ? 1 : 0
+                        delegate: Native.MenuItem { text: "No editors found"; enabled: false }
+                        onObjectAdded: function(index, object) { openWithMenu.insertItem(openWithMenu.count, object) }
+                        onObjectRemoved: function(index, object) { openWithMenu.removeItem(object) }
+                    }
+                }
+
+                Native.MenuSeparator {}
+
+                Native.MenuItem {
                     text: Strings.t("remove")
-                    iconSource: "../icons/lucide/trash-2.svg"
-                    danger: true
-                    onClicked: root.deleteRequested()
+                    icon.name: root.nativeMenuIconsSupported ? "user-trash" : ""
+                    icon.source: "../icons/lucide/trash-2.svg"
+                    onTriggered: root.deleteRequested()
                 }
             }
         }

@@ -805,89 +805,10 @@ Components.ShellCard {
                 deleteNodeProjectDialog: deleteNodeProjectDialog
             }
 
-            ColumnLayout {
+            WebsiteParts.WebsiteProxyTable {
                 anchors.fill: parent
                 visible: root.projectTab === "proxy"
-                spacing: 14
-
-                Rectangle {
-                    Layout.fillWidth: true
-                    Layout.preferredHeight: 38
-                    color: Theme.surfaceAlt
-                    border.color: Theme.border
-                    radius: Theme.radius
-                    RowLayout {
-                        anchors.fill: parent
-                        anchors.leftMargin: 14
-                        anchors.rightMargin: 14
-                        spacing: 0
-                        Text { text: "Domain"; color: Theme.muted; font.pixelSize: 12; Layout.preferredWidth: 280 }
-                        Text { text: "Target"; color: Theme.muted; font.pixelSize: 12; Layout.fillWidth: true }
-                        Text { text: "Actions"; color: Theme.muted; font.pixelSize: 12; Layout.preferredWidth: 260 }
-                    }
-                }
-
-                ListView {
-                    Layout.fillWidth: true
-                    Layout.fillHeight: true
-                    clip: true
-                    model: dashboardBridge.proxyItems
-                    delegate: Components.ShellCard {
-                        required property var modelData
-                        width: ListView.view.width
-                        height: 78
-                        RowLayout {
-                            anchors.fill: parent; anchors.margins: 14
-                            Text {
-                                Layout.preferredWidth: 280
-                                text: modelData.local_domain
-                                color: Theme.accentStrong
-                                font.pixelSize: 13
-                                elide: Text.ElideRight
-                            }
-                            Text {
-                                Layout.fillWidth: true
-                                text: modelData.target
-                                color: Theme.muted
-                                font.pixelSize: 12
-                                elide: Text.ElideMiddle
-                            }
-                            RowLayout {
-                                Layout.preferredWidth: 260
-                                spacing: 6
-                                Components.QuickActionButton {
-                                    text: "Open"
-                                    iconSource: "../icons/lucide/external-link.svg"
-                                    tooltip: "Open website"
-                                    onClicked: Qt.openUrlExternally("http://" + modelData.local_domain)
-                                }
-                                Components.QuickActionButton {
-                                    text: "Copy"
-                                    iconSource: "../icons/lucide/file.svg"
-                                    tooltip: "Copy domain"
-                                    onClicked: dashboardBridge.copyTextToClipboard(modelData.local_domain)
-                                }
-                                Components.QuickActionButton {
-                                    text: "Modify"
-                                    iconSource: "../icons/lucide/settings.svg"
-                                    tooltip: "Modify proxy"
-                                    onClicked: {
-                                        root.editingProxyId = String(modelData.id || "")
-                                        root.editingProxyData = modelData
-                                        root.addProxyOpen = true
-                                    }
-                                }
-                                Components.QuickActionButton {
-                                    text: "Delete"
-                                    iconSource: "../icons/lucide/trash-2.svg"
-                                    tooltip: "Delete proxy"
-                                    danger: true
-                                    onClicked: dashboardBridge.deleteProxy(modelData.id)
-                                }
-                            }
-                        }
-                    }
-                }
+                pageRoot: root
             }
         }
     }

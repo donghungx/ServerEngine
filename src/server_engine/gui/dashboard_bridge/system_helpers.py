@@ -1,28 +1,90 @@
 from ._shared import *
 import platform
+import plistlib
 
 
 class SystemHelpersMixin:
     @Slot(str, result="QVariantList")
     def websiteOpenWithEditors(self, path: str) -> list[dict[str, str]]:
-        editors = [
-            ("visual-studio-code", "Visual Studio Code", "Visual Studio Code"),
-            ("cursor", "Cursor", "Cursor"),
-            ("sublime-text", "Sublime Text", "Sublime Text"),
-            ("zed", "Zed", "Zed"),
-            ("textedit", "TextEdit", "TextEdit"),
+        if sys.platform != "darwin":
+            return [
+                {"id": name, "label": name, "iconSource": ""}
+                for name in ("code", "cursor", "sublime_text", "zed", "textedit")
+                if shutil.which(name)
+            ]
+
+        applications: list[Path] = []
+        search_roots = [
+            Path("/Applications"),
+            Path.home() / "Applications",
+            Path("/System/Applications"),
         ]
-        result = []
-        for editor_id, label, application in editors:
-            if sys.platform == "darwin" and not Path(f"/Applications/{application}.app").exists():
+        for search_root in search_roots:
+            if not search_root.is_dir():
                 continue
-            result.append({"id": editor_id, "label": label, "iconSource": ""})
-        return result
+            applications.extend(search_root.glob("*.app"))
+
+        seen: set[str] = set()
+        editors: list[dict[str, str]] = []
+        # Keep the menu useful by selecting applications that are editors,
+        # IDEs, terminals, or known developer tools. This still discovers
+        # apps installed outside /Applications and does not use a whitelist
+        # of executable names.
+        editor_terms = (
+            "code", "editor", "text", "cursor", "zed", "sublime", "nova", "bbedit",
+            "xcode", "intellij", "idea", "studio", "phpstorm", "webstorm", "pycharm", "rubymine",
+            "goland", "clion", "rider", "fleet", "atom", "coteditor", "lapce", "windsurf",
+            "terminal", "iterm", "warp", "alacritty", "kitty", "emacs", "vim",
+        )
+        for app_path in sorted(applications, key=lambda item: item.name.lower()):
+            app_key = str(app_path.resolve())
+            if app_key in seen or not app_path.is_dir():
+                continue
+            seen.add(app_key)
+            try:
+                with (app_path / "Contents" / "Info.plist").open("rb") as handle:
+                    info = plistlib.load(handle)
+            except (OSError, ValueError, plistlib.InvalidFileException):
+                continue
+            label = str(info.get("CFBundleDisplayName") or info.get("CFBundleName") or app_path.stem).strip()
+            searchable = f"{label} {app_path.stem} {info.get('CFBundleIdentifier', '')}".lower()
+            if not any(term in searchable for term in editor_terms):
+                continue
+            icon_source = self._mac_application_icon(app_path, info)
+            editors.append({"id": f"app:{app_key}", "label": label, "iconSource": icon_source})
+        return editors
+
+    def _mac_application_icon(self, app_path: Path, info: dict) -> str:
+        """Return a cached native macOS app icon suitable for a QML menu."""
+        try:
+            resources = app_path / "Contents" / "Resources"
+            icon_name = str(info.get("CFBundleIconFile") or "").strip()
+            if icon_name:
+                icon_path = resources / icon_name
+                if icon_path.suffix == "":
+                    icon_path = icon_path.with_suffix(".icns")
+                if icon_path.exists():
+                    return icon_path.as_uri()
+
+            import AppKit
+
+            icon_dir = self._container.runtime_paths.temp_dir / "open-with-icons"
+            icon_dir.mkdir(parents=True, exist_ok=True)
+            icon_path = icon_dir / f"{hashlib.sha256(str(app_path).encode()).hexdigest()}.tiff"
+            if not icon_path.exists():
+                icon = AppKit.NSWorkspace.sharedWorkspace().iconForFile_(str(app_path))
+                representation = icon.TIFFRepresentation()
+                if representation is not None:
+                    representation.writeToFile_atomically_(str(icon_path), True)
+            return icon_path.as_uri() if icon_path.exists() else ""
+        except Exception:
+            return ""
 
     @Slot(str, str, result=bool)
     def openPathWithEditor(self, path: str, editor_id: str) -> bool:
         cleaned_path = str(path or "").strip()
-        selected = str(editor_id or "").strip().lower()
+        raw_selected = str(editor_id or "").strip()
+        selected = raw_selected.lower()
         applications = {
             "visual-studio-code": "Visual Studio Code",
             "cursor": "Cursor",
@@ -31,6 +93,10 @@ class SystemHelpersMixin:
             "textedit": "TextEdit",
         }
         application = applications.get(selected)
+        if selected.startswith("app:"):
+            candidate = Path(raw_selected[4:])
+            if candidate.suffix == ".app" and candidate.is_dir():
+                application = str(candidate)
         if not cleaned_path or not application:
             return False
         try:

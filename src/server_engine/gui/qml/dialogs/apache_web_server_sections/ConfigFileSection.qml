@@ -10,6 +10,33 @@ Item {
     property var dashboardBridge
     property var runtimeWindow
 
+    function mainWindow() {
+        return pageRoot && pageRoot.Window ? pageRoot.Window.window : null
+    }
+
+    function saveTestedDraft() {
+        var ok = dashboardBridge.saveActiveApacheConfigContent(pageRoot.apacheConfigDraft)
+        pageRoot.apacheConfigFeedback = dashboardBridge.apacheRuntimeMessage
+        if (!ok) {
+            return
+        }
+        if (runtimeWindow && runtimeWindow.refreshApacheDrafts) {
+            runtimeWindow.refreshApacheDrafts()
+        }
+        if (runtimeWindow && runtimeWindow.webRunning) {
+            dashboardBridge.restartWebServerRuntime()
+        }
+    }
+
+    Connections {
+        target: mainWindow()
+        function onGlobalConfirmAccepted(actionId, payload) {
+            if (actionId === "apache.save_config") {
+                root.saveTestedDraft()
+            }
+        }
+    }
+
     Components.SettingsTabFrame {
         anchors.fill: parent
         color: "transparent"
@@ -112,12 +139,26 @@ Item {
                 highlighted: true
                 textColor: "white"
                 onClicked: {
-                    var ok = dashboardBridge.saveActiveApacheConfigContent(pageRoot.apacheConfigDraft)
+                    var valid = dashboardBridge.testActiveApacheConfigDraft(pageRoot.apacheConfigDraft)
                     pageRoot.apacheConfigFeedback = dashboardBridge.apacheRuntimeMessage
-                    if (ok) {
-                        if (runtimeWindow && runtimeWindow.refreshApacheDrafts) {
-                            runtimeWindow.refreshApacheDrafts()
-                        }
+                    if (!valid) {
+                        return
+                    }
+                    var appWindow = root.mainWindow()
+                    if (appWindow && appWindow.openGlobalConfirm) {
+                        appWindow.openGlobalConfirm(
+                            "Save Apache configuration",
+                            runtimeWindow && runtimeWindow.webRunning
+                                ? "The configuration passed Apache's test. Save it and restart Apache now?"
+                                : "The configuration passed Apache's test. Save it now?",
+                            "apache.save_config",
+                            {},
+                            "Save",
+                            Strings.t("cancel"),
+                            runtimeWindow
+                        )
+                    } else {
+                        root.saveTestedDraft()
                     }
                 }
             }

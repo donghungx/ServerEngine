@@ -40,7 +40,7 @@ class ProxyPageMixin:
             items.append(item)
         return items
 
-    @Slot(str, str, str, str, str, bool, bool, bool, result=bool)
+    @Slot(str, str, str, str, bool, bool, bool, result=bool)
     def createProxy(self, name: str, domain: str, target: str, notes: str = "", ssl_enabled: bool = False, ssl_enforce_tls: bool = False, ssl_allow_http: bool = True) -> bool:
         try:
             proxy = self._container.proxy_service.create_proxy(name, domain, target, notes, ssl_enabled, ssl_enforce_tls, ssl_allow_http)

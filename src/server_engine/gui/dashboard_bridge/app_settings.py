@@ -150,6 +150,42 @@ class AppSettingsMixin(DashboardBridgeSignals):
         return path.with_suffix(path.suffix + ".bak")
 
     @Slot(str, result=bool)
+    def testActiveApacheConfigDraft(self, content: str) -> bool:
+        """Validate unsaved Apache text without replacing the active config."""
+        temporary_path = None
+        try:
+            with tempfile.NamedTemporaryFile("w", encoding="utf-8", suffix=".conf", delete=False) as handle:
+                handle.write(str(content or ""))
+                temporary_path = Path(handle.name)
+            command = [
+                str(self._container.binary_locator.apache_httpd()),
+                "-t",
+                "-f",
+                str(temporary_path),
+                "-d",
+                str(self._container.binary_locator.apache_home()),
+            ]
+            result = subprocess.run(command, capture_output=True, text=True, check=False)
+            output = (result.stdout or "").strip()
+            error = (result.stderr or "").strip()
+            if result.returncode == 0:
+                self._apache_runtime_message = ("Apache draft config test passed.\n" + output).strip()
+                self._apache_runtime_error = False
+            else:
+                self._apache_runtime_message = "Apache draft config test failed.\n" + (error or output or f"Exit code {result.returncode}")
+                self._apache_runtime_error = True
+            self.appSettingsFeedbackChanged.emit()
+            return result.returncode == 0
+        except Exception as exc:
+            self._apache_runtime_message = f"Apache draft config test failed: {exc}"
+            self._apache_runtime_error = True
+            self.appSettingsFeedbackChanged.emit()
+            return False
+        finally:
+            if temporary_path is not None:
+                temporary_path.unlink(missing_ok=True)
+
+    @Slot(str, result=bool)
     def saveActiveApacheConfigContent(self, content: str) -> bool:
         try:
             config_path = self._apache_config_path()
