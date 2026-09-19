@@ -16,6 +16,9 @@ Window {
     property bool saving: false
     property string feedback: ""
     property bool feedbackError: false
+    property string certFile: ""
+    property string keyFile: ""
+    readonly property bool sslCertificateBusy: dashboardBridge ? !!dashboardBridge.proxySslCertificateBusy : false
 
     width: 736
     height: 560
@@ -37,6 +40,8 @@ Window {
         proxySslEnabled.checked = !!proxyData.ssl_enabled
         proxySslEnforce.checked = !!proxyData.ssl_enforce_tls
         proxySslAllowHttp.checked = proxyData.ssl_allow_http !== undefined ? !!proxyData.ssl_allow_http : true
+        certFile = String(proxyData.ssl_certificate_path || "")
+        keyFile = String(proxyData.ssl_key_path || "")
         feedback = ""
         feedbackError = false
     }
@@ -66,6 +71,21 @@ Window {
         }
     }
 
+    function refreshCertificatePaths() {
+        if (!dashboardBridge || !proxyData.id) {
+            return
+        }
+        var items = dashboardBridge.proxyItems || []
+        for (var i = 0; i < items.length; i++) {
+            if (String(items[i].id || "") === String(proxyData.id || "")) {
+                proxyData = items[i]
+                certFile = String(items[i].ssl_certificate_path || "")
+                keyFile = String(items[i].ssl_key_path || "")
+                break
+            }
+        }
+    }
+
     onVisibleChanged: {
         if (visible) {
             activeTab = "domain"
@@ -76,6 +96,11 @@ Window {
     }
 
     onClosing: root.proxyDetailsOpen = false
+
+    Connections {
+        target: dashboardBridge
+        function onDataChanged() { dialog.refreshCertificatePaths() }
+    }
 
     Components.PageWindowFrame {
         moveWindow: dialog
@@ -122,33 +147,120 @@ Window {
             anchors.bottomMargin: 48
             visible: activeTab === "domain"
 
-            ColumnLayout {
+            Flickable {
                 anchors.fill: parent
-                spacing: 14
+                contentWidth: width
+                contentHeight: domainForm.implicitHeight
+                clip: true
 
-                Components.SettingsLabeledInput {
+                ColumnLayout {
+                    id: domainForm
+                    width: parent.width
+                    spacing: 14
+
+                    Components.SettingsLabeledInput {
                     title: "Domain"
                     description: "The local domain for this proxy project."
                     Components.AppTextField { id: proxyDomain; Layout.fillWidth: true }
-                }
-                Components.SettingsLabeledInput {
+                    }
+                    Components.SettingsLabeledInput {
                     title: "Target"
                     description: "The HTTP service or Unix socket receiving proxied requests."
                     Components.AppTextField { id: proxyTarget; Layout.fillWidth: true }
-                }
-                Components.SettingsLabeledInput {
+                    }
+                    Components.SettingsLabeledInput {
                     title: "Note"
                     description: "Optional reminder about this proxy project."
                     Components.AppTextField { id: proxyNotes; Layout.fillWidth: true }
-                }
-                Components.SettingsCheckableOption {
+                    }
+                    Components.SettingsCheckableOption {
                     id: proxySslEnabled
                     title: "Enable SSL"
                     description: "Serve this proxy over local HTTPS."
                     checked: false
+                    itemEnabled: !saving && !sslCertificateBusy
+                    onToggled: function(value) {
+                        if (value && dashboardBridge && proxyData.id) {
+                            var started = dashboardBridge.ensureProxySslCertificate(String(proxyData.id))
+                            if (!started) {
+                                proxySslEnabled.checked = false
+                            }
+                        }
+                    }
                     Layout.fillWidth: true
-                }
-                Components.SettingsCheckableOption {
+                    Text {
+                        visible: sslCertificateBusy
+                        text: "Creating SSL certificate..."
+                        color: Theme.muted
+                        font.pixelSize: 12
+                        Layout.fillWidth: true
+                        Layout.leftMargin: 198
+                    }
+                    }
+
+                    Components.SettingsLabeledInput {
+                    visible: proxySslEnabled.checked
+                    title: "Certificate file"
+                    description: "Open the certificate file for this proxy."
+                    RowLayout {
+                        Layout.fillWidth: true
+                        spacing: 10
+                        Components.AppTextField { Layout.fillWidth: true; text: certFile; readOnly: true }
+                        Components.AppButton {
+                            text: "Reveal in Finder"
+                            enabled: certFile.length > 0
+                            onClicked: if (dashboardBridge) dashboardBridge.revealInFinder(certFile)
+                        }
+                    }
+                    }
+
+                    Components.SettingsLabeledInput {
+                    visible: proxySslEnabled.checked
+                    title: "Certificate key file"
+                    description: "Open the private key file for this proxy."
+                    RowLayout {
+                        Layout.fillWidth: true
+                        spacing: 10
+                        Components.AppTextField { Layout.fillWidth: true; text: keyFile; readOnly: true }
+                        Components.AppButton {
+                            text: "Reveal in Finder"
+                            enabled: keyFile.length > 0
+                            onClicked: if (dashboardBridge) dashboardBridge.revealInFinder(keyFile)
+                        }
+                    }
+                    }
+
+                    RowLayout {
+                    visible: proxySslEnabled.checked
+                    Layout.fillWidth: true
+                    Layout.leftMargin: 198 + 16
+                    spacing: 8
+                    Components.StatusTextButton {
+                        label: "Regenerate certificate"
+                        iconSource: "../icons/lucide/rotate-cw.svg"
+                        enabled: !!dashboardBridge && !!proxyData.id && !sslCertificateBusy
+                        tooltip: "Create a new self-signed certificate for this proxy."
+                        onClicked: {
+                            var ok = dashboardBridge.regenerateProxySelfSignedCertificate(String(proxyData.id))
+                            feedback = dashboardBridge.lastOperationMessage
+                            feedbackError = !ok
+                            if (ok) refreshCertificatePaths()
+                        }
+                    }
+                    Components.StatusTextButton {
+                        label: "Trust certificate"
+                        iconSource: "../icons/lucide/shield-check.svg"
+                        enabled: !!dashboardBridge && !!proxyData.id && certFile.length > 0
+                        tooltip: "Trust this certificate in macOS for local HTTPS development."
+                        onClicked: {
+                            var ok = dashboardBridge.trustProxyCertificate(String(proxyData.id))
+                            feedback = dashboardBridge.lastOperationMessage
+                            feedbackError = !ok
+                        }
+                    }
+                    }
+
+                    Components.SettingsCheckableOption {
                     id: proxySslEnforce
                     title: "Enforce TLS"
                     description: "Redirect HTTP requests to HTTPS."
@@ -157,8 +269,8 @@ Window {
                     itemEnabled: proxySslEnabled.checked && !saving
                     Layout.fillWidth: true
                     onToggled: function(value) { if (value) proxySslAllowHttp.checked = false }
-                }
-                Components.SettingsCheckableOption {
+                    }
+                    Components.SettingsCheckableOption {
                     id: proxySslAllowHttp
                     title: "Allow HTTP"
                     description: "Keep plain HTTP connections available."
@@ -166,8 +278,9 @@ Window {
                     visible: proxySslEnabled.checked
                     itemEnabled: proxySslEnabled.checked && !proxySslEnforce.checked && !saving
                     Layout.fillWidth: true
+                    }
+                    Item { Layout.fillHeight: true }
                 }
-                Item { Layout.fillHeight: true }
             }
         }
 
@@ -212,7 +325,7 @@ Window {
                 visible: activeTab === "domain"
                 text: saving ? "Saving..." : "Save Changes"
                 highlighted: true
-                enabled: !saving
+                enabled: !saving && !sslCertificateBusy
                 onClicked: saveProxy()
             }
         }
